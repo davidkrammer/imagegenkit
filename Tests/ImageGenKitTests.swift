@@ -121,6 +121,36 @@ struct ConfigTests {
         #expect(ConfigStore(url: url).provider("together") == nil)
     }
 
+    @Test func keepsUnknownKeys() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "igk-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appending(path: "config.json")
+        try Data(#"{"auto_update": false, "future": {"x": [1, 2]}, "tasks": {"draft": {"provider": "grok", "extra": "y"}}}"#.utf8).write(to: url)
+        ConfigStore(url: url).setTask(.final, "provider", "xai")
+        let obj = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(obj["auto_update"] as? Bool == false)
+        #expect((obj["future"] as? [String: Any])?["x"] as? [Int] == [1, 2])
+        #expect(((obj["tasks"] as? [String: Any])?["draft"] as? [String: Any])?["extra"] as? String == "y")
+    }
+
+    /// A hand-edited config.json with a typo used to be replaced by the app's next save without a trace.
+    @Test func backsUpUnreadableConfigBeforeSaving() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "igk-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appending(path: "config.json")
+        let broken = #"{"order": ["grok"] "my_notes": "keep me"}"#  // missing comma
+        try Data(broken.utf8).write(to: url)
+        let c = ConfigStore(url: url)
+        #expect(c.user.isEmpty)
+        c.setTask(.draft, "provider", "openai")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix("config.unreadable-") }
+        let backup = try #require(backups.count == 1 ? backups.first : nil)
+        #expect(try String(contentsOf: dir.appending(path: backup), encoding: .utf8) == broken)
+        #expect(ConfigStore(url: url).taskValue(.draft, "provider") == "openai")
+    }
+
     @Test func versionCompare() {
         #expect(Installer.compare("1.0.0", "1.0") == 0)
         #expect(Installer.compare("1.2", "1.10") == -1)

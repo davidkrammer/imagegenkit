@@ -503,8 +503,9 @@ def save_images(images, out, prompt, overwrite, cfg):
     saved = []
     for i, (data, mime) in enumerate(images):
         mime = sniff(data, mime or "image/png")
-        if user_ext == ".png" and mime != "image/png":
-            data, mime = convert_png(data, mime)
+        want = MIME_BY_EXT.get(user_ext or "")
+        if want in ("image/png", "image/jpeg") and mime != want:  # -o x.png / x.jpg: save what was asked for
+            data, mime = convert_image(data, mime, want)
         ext = EXT_BY_MIME.get(mime, ".png")
         if user_ext and MIME_BY_EXT.get(user_ext) == mime:
             ext = user_ext  # keep .jpeg vs .jpg as requested
@@ -518,16 +519,17 @@ def save_images(images, out, prompt, overwrite, cfg):
     return saved
 
 
-def convert_png(data, mime):
-    """JPEG/WebP -> PNG via macOS sips, when -o asks for .png."""
+def convert_image(data, mime, want):
+    """Convert to PNG or JPEG via macOS sips when -o asks for that format. Keeps the original if it fails."""
     GROK_WORKDIR.mkdir(parents=True, exist_ok=True)
     src = GROK_WORKDIR / f"{uuid.uuid4().hex}{EXT_BY_MIME.get(mime, '.img')}"
-    dst = src.with_suffix(".png")
+    dst = src.with_suffix(".out" + EXT_BY_MIME[want])
+    fmt = ["-s", "format", "png"] if want == "image/png" else ["-s", "format", "jpeg", "-s", "formatOptions", "90"]
     try:
         src.write_bytes(data)
-        subprocess.run(["sips", "-s", "format", "png", str(src), "--out", str(dst)], capture_output=True)
-        if dst.exists():
-            return dst.read_bytes(), "image/png"
+        subprocess.run(["sips"] + fmt + [str(src), "--out", str(dst)], capture_output=True)
+        if dst.exists() and dst.stat().st_size:
+            return dst.read_bytes(), want
     finally:
         for f in (src, dst):
             if f.exists():

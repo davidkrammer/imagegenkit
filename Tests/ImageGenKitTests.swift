@@ -244,3 +244,22 @@ struct KeychainTests {
         #expect(!(await Keychain.exists(service)))
     }
 }
+
+@MainActor
+struct StatsTests {
+    @Test func bucketsByLocalDayAndMonth() throws {
+        let parser = LogParser()
+        let lines = ["2026-10-31T23:59:00", "2026-11-01T00:01:00", "2026-11-01T12:00:00", "2026-11-03T08:00:00"].enumerated().map { i, ts in
+            #"{"ts": "\#(ts)", "provider": "xai", "model": "m", "outputs": ["/a/\#(i).png"], "cwd": "/a"}"#
+        }
+        let entries = try lines.enumerated().map { try #require(parser.parse(line: Substring($1), id: $0)) }
+        let stats = Stats(entries: entries, rangeStart: nil, cost: { _ in 0.02 })
+        #expect(stats.months.map(\.images) == [3, 1])  // newest first: November, October
+        let cal = Calendar.current
+        #expect(stats.months.first?.start == cal.date(from: DateComponents(year: 2026, month: 11, day: 1)))
+        #expect(stats.buckets.map(\.images) == [1, 2, 1])
+        #expect(stats.buckets.map(\.start) == [(2026, 10, 31), (2026, 11, 1), (2026, 11, 3)].map {
+            cal.date(from: DateComponents(year: $0.0, month: $0.1, day: $0.2))!
+        })
+    }
+}

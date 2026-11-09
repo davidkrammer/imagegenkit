@@ -133,18 +133,23 @@ final class LogStore {
         archiveTotal += refs.count
         archiveTask = Task.detached(priority: .utility) { [weak self] in
             await previous?.value
-            var done = 0
+            var done = 0, reported = 0
             var gone: [String] = []
+            var lastFlush = ContinuousClock.now
             for (id, ref) in refs {
                 if !Thumbnails.ensureArchived(ref) { gone.append(id) }
                 done += 1
-                if done % 20 == 0 || done == refs.count {
-                    let step = done % 20 == 0 ? 20 : done % 20, batch = gone
-                    gone = []
-                    await MainActor.run {
-                        self?.archiveDone += step
-                        self?.missing.formUnion(batch)
-                    }
+                // Publish at most twice a second: every change of `missing` redraws the gallery and the
+                // overview, which with a 10k-run log kept the main thread busy for minutes.
+                guard done == refs.count || ContinuousClock.now - lastFlush > .milliseconds(500) else { continue }
+                lastFlush = .now
+                let step = done - reported, batch = gone
+                reported = done
+                gone = []
+                await MainActor.run {
+                    guard let self else { return }
+                    self.archiveDone += step
+                    if !batch.isEmpty { self.missing.formUnion(batch) }
                 }
             }
         }

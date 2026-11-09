@@ -10,6 +10,7 @@ struct ImageGenKitApp: App {
     @State private var installer = Installer()
     @State private var updater = Updater()
     @State private var catalog = Catalog()
+    @AppStorage("showMenuBar") private var showMenuBar = true
 
     init() {
         Paths.migrateLegacyConfig()
@@ -22,6 +23,8 @@ struct ImageGenKitApp: App {
     var body: some Scene {
         Window("ImageGenKit", id: "main") {
             RootView()
+                .modifier(MenuBarLimitWatcher())
+                .modifier(MenuBarDebugOpener())
                 .environment(store)
                 .environment(config)
                 .environment(status)
@@ -47,6 +50,35 @@ struct ImageGenKitApp: App {
             }
         }
 
+        MenuBarExtra(isInserted: $showMenuBar) {
+            MenuBarPanel()
+                .environment(store)
+                .environment(config)
+                .controlSize(.large)
+                .buttonBorderShape(Theme.buttonShape)
+                .tint(Theme.accent)
+        } label: {
+            MenuBarLabel()
+                .environment(store)
+                .environment(config)
+        }
+        .menuBarExtraStyle(.window)
+
+        #if DEBUG
+        // `-debugMenuPanel YES`: the menu bar panel in a normal window (screenshots).
+        Window("Menu Bar Panel", id: "debugMenuPanel") {
+            MenuBarPanel()
+                .environment(store)
+                .environment(config)
+                .controlSize(.large)
+                .buttonBorderShape(Theme.buttonShape)
+                .tint(Theme.accent)
+        }
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+        .defaultLaunchBehavior(.suppressed)
+        #endif
+
         Settings {
             SettingsView()
                 .environment(store)
@@ -63,6 +95,21 @@ struct ImageGenKitApp: App {
     }
 }
 
+extension ImageGenKitApp {
+    static var debugPanel: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "debugMenuPanel")
+        #else
+        false
+        #endif
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MenuBarDock.shared.install()
+    }
+
+    /// With the menu bar item shown, closing the window keeps the app running there.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !MenuBarDock.showMenuBar }
 }

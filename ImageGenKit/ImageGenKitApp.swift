@@ -29,6 +29,8 @@ struct ImageGenKitApp: App {
                 .environment(updater)
                 .environment(catalog)
                 .controlSize(.large)
+                .buttonBorderShape(Theme.buttonShape)
+                .tint(Theme.accent)
                 .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1120, height: 740)
@@ -54,6 +56,8 @@ struct ImageGenKitApp: App {
                 .environment(updater)
                 .environment(catalog)
                 .controlSize(.large)
+                .buttonBorderShape(Theme.buttonShape)
+                .tint(Theme.accent)
                 .frame(width: 720, height: 600)
         }
     }

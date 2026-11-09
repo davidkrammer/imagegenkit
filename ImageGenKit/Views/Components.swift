@@ -7,7 +7,24 @@ enum Theme {
     static let sidebar = Color(light: 0xEDEDF0, dark: 0x202023)
     static let card = Color(light: 0xFFFFFF, dark: 0x262629)
     static let well = Color(light: 0xF0F0F3, dark: 0x303034)
-    static let accent = Color(light: 0x5B5BD6, dark: 0x7C7CF0)
+    /// Brand accent. `-accentHex RRGGBB` / `-accentDarkHex RRGGBB` override it (design previews).
+    static let accent: Color = {
+        let d = UserDefaults.standard
+        if let hex = d.string(forKey: "accentHex").flatMap({ UInt32($0, radix: 16) }) {
+            let dark = d.string(forKey: "accentDarkHex").flatMap { UInt32($0, radix: 16) } ?? hex
+            return Color(light: hex, dark: dark)
+        }
+        return Color(light: 0x5B5BD6, dark: 0x7C7CF0)
+    }()
+
+    /// One button shape for the whole app. `-buttonShape capsule|rounded|square` previews others.
+    static let buttonShape: ButtonBorderShape = {
+        switch UserDefaults.standard.string(forKey: "buttonShape") {
+        case "capsule": .capsule
+        case "square": .roundedRectangle(radius: 5)
+        default: .roundedRectangle(radius: 8)
+        }
+    }()
 }
 
 extension Color {

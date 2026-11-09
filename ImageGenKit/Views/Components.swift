@@ -162,7 +162,7 @@ struct ImageMenu: View {
             Divider()
         }
         Button("Copy Prompt") { Actions.copy(entry.prompt) }
-        Button("Copy imagegen Command") { Actions.copy(entry.rerunCommand) }
+        Button("Copy Command") { Actions.copy(entry.rerunCommand) }
         if index < entry.outputs.count {
             Button("Copy File Path") { Actions.copy(entry.outputs[index]) }
         }

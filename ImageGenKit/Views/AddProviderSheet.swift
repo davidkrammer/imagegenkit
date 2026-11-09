@@ -276,7 +276,6 @@ struct AddProviderSetup: View {
         HStack(spacing: 8) {
             SecureField("API key", text: $key, prompt: Text("Paste your API key"))
                 .textFieldStyle(.roundedBorder)
-                .controlSize(.large)
                 .focused($keyFocused)
                 .onSubmit(connect)
             Button("Paste", systemImage: "doc.on.clipboard") {
@@ -284,7 +283,6 @@ struct AddProviderSetup: View {
                     key = s.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
-            .controlSize(.large)
         }
     }
 
@@ -416,7 +414,6 @@ struct AddProviderStepRow: View {
                     .padding(.top, 2)
                 if done != true, let (title, action) = button {
                     Button(title, action: action)
-                        .controlSize(.regular)
                         .disabled(!enabled)
                 }
             }

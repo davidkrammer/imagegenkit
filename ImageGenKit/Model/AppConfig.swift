@@ -295,9 +295,13 @@ final class ConfigStore {
     func setProviderDefault(_ provider: String, _ key: String, _ value: String) {
         var all = user["provider_defaults"] as? [String: Any] ?? [:]
         var d = all[provider] as? [String: Any] ?? [:]
-        if value.isEmpty { d.removeValue(forKey: key) } else { d[key] = value }
-        all[provider] = d
-        user["provider_defaults"] = all
+        let before = d[key] as? String
+        // Only store real choices: a value equal to the built-in default stays unset, so viewing never writes.
+        let fallback = Self.legacyKey(provider, key).map { string($0) } ?? ""
+        if value.isEmpty || value == fallback { d.removeValue(forKey: key) } else { d[key] = value }
+        guard (d[key] as? String) != before else { return }
+        if d.isEmpty { all.removeValue(forKey: provider) } else { all[provider] = d }
+        if all.isEmpty { user.removeValue(forKey: "provider_defaults") } else { user["provider_defaults"] = all }
         save()
     }
 

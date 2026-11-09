@@ -205,7 +205,6 @@ private struct DetailActionButton: View {
                 .contentTransition(.symbolEffect(.replace))
                 .frame(minWidth: 20)
         }
-        .controlSize(.large)
         .help(help)
         if prominent {
             button.buttonStyle(.borderedProminent)

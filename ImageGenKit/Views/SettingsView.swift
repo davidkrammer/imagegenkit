@@ -26,6 +26,10 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity)
         }
         #if DEBUG
+        .onAppear {
+            // Don't start with the cursor in a text field (typing would change a setting by accident).
+            DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) }
+        }
         .task {
             if let target = UserDefaults.standard.string(forKey: "debugScrollTo") {
                 try? await Task.sleep(for: .seconds(3))

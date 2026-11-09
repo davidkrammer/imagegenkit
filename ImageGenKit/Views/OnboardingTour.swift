@@ -155,8 +155,7 @@ struct OnboardingTour: View {
     private var closeButton: some View {
         Button("Close", systemImage: "xmark") { close(nil) }
             .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
+            .buttonStyle(.borderless)
             .keyboardShortcut(.cancelAction)
         .help("Close")
         .padding(12)
@@ -168,21 +167,16 @@ struct OnboardingTour: View {
             Spacer(minLength: 8)
             if step == .done {
                 Button("Settings") { close(.settings) }
-                    .controlSize(.large)
                 Button("Open Gallery") { close(.gallery) }
-                    .controlSize(.large)
                 Button { close(.generate) } label: { Label("Generate your first image", systemImage: "sparkles") }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
             } else {
                 Button(step == .welcome ? "Skip" : "Back") {
                     if step == .welcome { close(nil) } else { go(step.rawValue - 1) }
                 }
-                .controlSize(.large)
                 Button("Next") { go(step.rawValue + 1) }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
             }
         }

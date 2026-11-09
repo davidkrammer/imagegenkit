@@ -16,7 +16,6 @@ struct SettingsProvidersSection: View {
         SettingsSection(title: "Providers") {
             Button { sheet = .add } label: { Label("Add Provider", systemImage: "plus") }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.small)
         } content: {
             if enabled.isEmpty {
                 HStack(spacing: 10) {

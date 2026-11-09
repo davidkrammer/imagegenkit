@@ -78,7 +78,6 @@ private struct OnboardingFirstStepRow: View {
                     .buttonStyle(.borderedProminent)
             } else {
                 Button(button, action: action)
-                    .controlSize(.large)
             }
         }
         .card(padding: 14)

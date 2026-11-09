@@ -134,8 +134,7 @@ struct GenerateView: View {
             Spacer()
             Button("Close", systemImage: "xmark") { dismiss() }
                 .labelStyle(.iconOnly)
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
+                .buttonStyle(.borderless)
                 .keyboardShortcut(.cancelAction)
             .help("Close")
         }
@@ -434,7 +433,6 @@ struct GenerateView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.large)
             .keyboardShortcut(.return, modifiers: .command)
             .help("Generate (⌘↩)")
             .disabled(!canGenerate)

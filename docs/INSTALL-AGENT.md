@@ -29,7 +29,10 @@ If it says `~/.local/bin` isn't on the PATH, ask the user before changing their 
 
 ## 3. Connect a provider
 
-Ask the user to open **ImageGenKit › Settings › Providers › Add Provider**. The app walks them through getting a key (OpenAI, Google Gemini, xAI, OpenRouter, Recraft, Together AI, fal.ai) or logging in to a Grok subscription.
+When ImageGenKit opens for the first time, its welcome tour finds what's already set up and connects it. Otherwise ask the user to open **ImageGenKit › Settings › Providers › Add Provider**:
+
+- **ChatGPT or Grok subscription:** no key needed. The app installs and logs in to Codex or Grok Build for them (the login opens in the browser).
+- **API key:** the app walks them through getting a key (OpenAI, Google Gemini, xAI, OpenRouter, Recraft, Together AI, fal.ai).
 
 ## 4. Check
 

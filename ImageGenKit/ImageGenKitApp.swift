@@ -28,6 +28,7 @@ struct ImageGenKitApp: App {
                 .environment(installer)
                 .environment(updater)
                 .environment(catalog)
+                .controlSize(.large)
                 .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1120, height: 740)
@@ -52,6 +53,7 @@ struct ImageGenKitApp: App {
                 .environment(installer)
                 .environment(updater)
                 .environment(catalog)
+                .controlSize(.large)
                 .frame(width: 720, height: 600)
         }
     }

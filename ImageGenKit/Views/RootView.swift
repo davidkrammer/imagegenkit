@@ -191,7 +191,6 @@ private struct SidebarColumn: View {
                     Label("Generate", systemImage: "sparkles").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.large)
                 .keyboardShortcut("n", modifiers: .command)
                 .help("Generate an image (⌘N)")
 

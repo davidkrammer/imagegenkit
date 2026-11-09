@@ -13,7 +13,7 @@ final class Updater {
     @ObservationIgnored private var asset: URL?
     @ObservationIgnored private(set) var releasePage: URL?
 
-    static let repo = "strics-at/imagegenkit"
+    static let repo = "davidkrammer/imagegenkit"
     static let api = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
     static let homepage = URL(string: "https://github.com/\(repo)")!
 

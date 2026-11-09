@@ -1,10 +1,10 @@
 #!/bin/bash
 # ImageGenKit command line installer (no app needed).
-#   curl -fsSL https://raw.githubusercontent.com/strics-at/imagegenkit/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/install.sh | bash
 # Installs `imagegenkit` to ~/.local/bin and the agent skill for Claude Code and Codex (if installed).
 set -euo pipefail
 
-RAW="https://raw.githubusercontent.com/strics-at/imagegenkit/main"
+RAW="https://raw.githubusercontent.com/davidkrammer/imagegenkit/main"
 SHARE="$HOME/.local/share/imagegenkit"
 BIN="$HOME/.local/bin"
 

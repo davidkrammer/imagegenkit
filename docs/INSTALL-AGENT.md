@@ -8,7 +8,7 @@ You are helping a user install ImageGenKit on their Mac. Follow these steps in o
 
 ```bash
 cd "$(mktemp -d)"
-url=$(curl -fsSL https://api.github.com/repos/strics-at/imagegenkit/releases/latest \
+url=$(curl -fsSL https://api.github.com/repos/davidkrammer/imagegenkit/releases/latest \
   | grep -o '"browser_download_url": *"[^"]*ImageGenKit[^"]*\.zip"' | head -1 | cut -d'"' -f4)
 curl -fL "$url" -o ImageGenKit.zip
 ditto -x -k ImageGenKit.zip .
@@ -22,7 +22,7 @@ open "$dest/ImageGenKit.app"
 Run the installer (it puts `imagegenkit` in `~/.local/bin` and installs the skill for Claude Code and Codex if they're present):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/strics-at/imagegenkit/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/install.sh | bash
 ```
 
 If it says `~/.local/bin` isn't on the PATH, ask the user before changing their shell config, then add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`.

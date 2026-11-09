@@ -67,7 +67,7 @@ final class Catalog {
     private(set) var providers: [CatalogProvider] = []
     private(set) var updated = ""
 
-    static let remote = URL(string: "https://raw.githubusercontent.com/strics-at/imagegenkit/main/catalog/providers.json")!
+    static let remote = URL(string: "https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/catalog/providers.json")!
     private let cache = Paths.config.appending(path: "catalog.json")
 
     init() {

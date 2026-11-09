@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/strics-at/imagegenkit/releases/latest"><b>Download for Mac</b></a> ·
+  <a href="https://github.com/davidkrammer/imagegenkit/releases/latest"><b>Download for Mac</b></a> ·
   <a href="#install-with-your-ai-agent">Install with your AI agent</a> ·
   <a href="#command-line">Command line</a>
 </p>
@@ -46,7 +46,7 @@
 
 ### Download
 
-1. Download **ImageGenKit-x.y.z.zip** from the [latest release](https://github.com/strics-at/imagegenkit/releases/latest) and move **ImageGenKit** to Applications.
+1. Download **ImageGenKit-x.y.z.zip** from the [latest release](https://github.com/davidkrammer/imagegenkit/releases/latest) and move **ImageGenKit** to Applications.
 2. Open it. The welcome tour sets up a provider and your AI agents.
 
 > If macOS says it can't check the app, open **System Settings › Privacy & Security** and click **Open Anyway**.
@@ -56,13 +56,13 @@
 Paste this into Claude Code, Codex or another coding agent:
 
 ```text
-Install ImageGenKit for me by following https://github.com/strics-at/imagegenkit/blob/main/docs/INSTALL-AGENT.md
+Install ImageGenKit for me by following https://github.com/davidkrammer/imagegenkit/blob/main/docs/INSTALL-AGENT.md
 ```
 
 ### Command line only
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/strics-at/imagegenkit/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/install.sh | bash
 imagegenkit set-key openai     # or log in to a subscription: grok login / codex login
 ```
 

@@ -32,9 +32,9 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.4"
-HOMEPAGE = "https://github.com/strics-at/imagegenkit"
-GITHUB_REPO = "strics-at/imagegenkit"
+VERSION = "1.0.5"
+HOMEPAGE = "https://github.com/davidkrammer/imagegenkit"
+GITHUB_REPO = "davidkrammer/imagegenkit"
 CATALOG_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/catalog/providers.json"
 
 CONFIG_DIR = Path.home() / ".config" / "imagegenkit"

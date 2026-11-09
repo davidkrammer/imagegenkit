@@ -1156,9 +1156,10 @@ def run_codex(a, cfg, spec, task):
             failure = (ev.get("error") or {}).get("message", "turn failed")
         paths += re.findall(r'[^"\s]*generated_images/[^"\s]+\.(?:png|jpe?g|webp)', line)
     files = [Path(p) for p in dict.fromkeys(paths) if Path(p).exists()]
-    if not files and thread:
-        files = sorted((gen_dir / thread).glob("*"), key=lambda f: f.stat().st_mtime) if (gen_dir / thread).is_dir() else []
-    if not files:  # last resort: anything Codex saved during this run
+    if not files and thread and not failure:
+        files = sorted((f for f in (gen_dir / thread).glob("*") if f.stat().st_mtime >= t0 - 1),
+                       key=lambda f: f.stat().st_mtime) if (gen_dir / thread).is_dir() else []
+    if not files and not thread and not failure:  # last resort: anything Codex saved during this run
         files = sorted((f for f in gen_dir.glob("*/*") if f.stat().st_mtime >= t0 - 1),
                        key=lambda f: f.stat().st_mtime)
     files = [f for f in files if f.suffix.lower() in MIME_BY_EXT][: max(a.n, 1) * 2]

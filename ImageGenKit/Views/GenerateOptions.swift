@@ -7,7 +7,8 @@ enum GenerateSpec {
 
     static func aspects(_ kind: ProviderKind) -> [String] {
         switch kind {
-        case .openai, .compatible: [auto, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"]
+        case .openai, .compatible, .together, .fal: [auto, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"]
+        case .openrouter: [auto, "1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "21:9"]
         case .grokBuild: [auto, "1:1", "16:9", "9:16", "3:2", "2:3"]
         case .xai: [auto, "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "1:2", "2:1"]
         case .gemini: [auto, "1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "21:9"]
@@ -37,7 +38,7 @@ enum GenerateSpec {
         case .openai: config.string(editing ? "openai_edit_model" : "openai_model")
         case .xai: config.string("xai_model")
         case .gemini: config.string("gemini_model")
-        case .compatible: (editing ? p.editModel : nil) ?? p.model ?? ""
+        case .compatible, .openrouter, .together, .fal: (editing ? p.editModel : nil) ?? p.model ?? ""
         case .grokBuild: ""
         }
     }

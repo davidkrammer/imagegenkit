@@ -102,7 +102,7 @@ struct ConfigTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let c = ConfigStore(url: url)
         #expect(c.taskValue(.draft, "provider") == "grok")
-        #expect(c.order.prefix(2) == ["grok", "openai"])
+        #expect(c.order.prefix(2) == ["grok", "codex"])
         c.setTask(.draft, "provider", "openai")
         c.set("resolution", "2K")  // default: not written
         c.setPrice("xai", "per_image", 0.04)

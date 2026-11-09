@@ -24,9 +24,11 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import time
+import http.client as http_client
 import urllib.error
 import urllib.request
 import uuid
@@ -115,7 +117,7 @@ GEMINI_API_REVISION = "2026-05-20"
 
 class ApiError(Exception):
     def __init__(self, status, message):
-        super().__init__(f"HTTP {status}: {message}")
+        super().__init__(f"HTTP {status}: {message}" if status else message)
         self.status = status
         self.message = message
 
@@ -329,20 +331,32 @@ def readiness(spec):
 
 # ---------- http ----------
 
+def short_text(raw, limit=300):
+    """A non-JSON body (often an HTML error page) as one short line."""
+    text = " ".join(re.sub(r"<[^>]+>", " ", raw).split())
+    return (text[:limit] + "...") if len(text) > limit else (text or "(empty)")
+
+
 def http(method, url, headers=None, body=None, retries=2):
     for attempt in range(retries + 1):
         req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
                 raw = r.read()
-                return json.loads(raw) if raw else {}
+            try:
+                data = json.loads(raw) if raw.strip() else {}
+            except ValueError:
+                raise ApiError(0, f"the provider sent an unreadable answer: {short_text(raw.decode('utf-8', 'replace'))}")
+            if not isinstance(data, dict):
+                raise ApiError(0, "the provider sent an unexpected answer")
+            return data
         except urllib.error.HTTPError as e:
             raw = e.read().decode("utf-8", "replace")
             try:
                 err = json.loads(raw).get("error", raw)
                 msg = err.get("message", raw) if isinstance(err, dict) else str(err)
             except (ValueError, AttributeError):
-                msg = raw[:2000]
+                msg = short_text(raw)
             if e.code in (429, 500, 502, 503, 504) and attempt < retries:
                 wait = 5 * (attempt + 1)
                 log(f"  HTTP {e.code}, retrying in {wait}s: {msg[:200]}")
@@ -350,10 +364,16 @@ def http(method, url, headers=None, body=None, retries=2):
                 continue
             raise ApiError(e.code, msg)
         except urllib.error.URLError as e:
+            if isinstance(e.reason, (socket.timeout, TimeoutError)):
+                raise ApiError(0, f"no answer from the provider after {TIMEOUT:g}s (timed out)")
             if attempt < retries:
                 time.sleep(3)
                 continue
             raise ApiError(0, f"network error: {e.reason}")
+        except (socket.timeout, TimeoutError):  # no retry: the provider may still bill a slow request
+            raise ApiError(0, f"no answer from the provider after {TIMEOUT:g}s (timed out)")
+        except (OSError, http_client.HTTPException) as e:
+            raise ApiError(0, f"network error: {e}")
 
 
 def multipart(fields, files):
@@ -605,15 +625,35 @@ def openai_size(aspect, resolution):
     return f"{w}x{h}"
 
 
+def b64_image(text):
+    try:
+        return base64.b64decode(text)
+    except (ValueError, TypeError):
+        raise ApiError(0, "the provider sent an image that can't be decoded")
+
+
+def download(url):
+    """An image the provider returned as a URL."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "imagegenkit"}),
+                                    timeout=TIMEOUT) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        raise ApiError(e.code, f"couldn't download the image from {url[:120]}")
+    except (OSError, ValueError, http_client.HTTPException) as e:
+        raise ApiError(0, f"couldn't download the image from {url[:120]}: {getattr(e, 'reason', e)}")
+
+
 def collect_images(resp, skip=()):
     """Base64 or URL images from an OpenAI-style `data` list."""
     images = []
     for item in resp.get("data", []) or []:
+        if not isinstance(item, dict):
+            continue
         if item.get("b64_json"):
-            data = base64.b64decode(item["b64_json"])
+            data = b64_image(item["b64_json"])
         elif item.get("url"):
-            with urllib.request.urlopen(item["url"], timeout=TIMEOUT) as r:
-                data = r.read()
+            data = download(item["url"])
         else:
             continue
         if hashlib.sha1(data).hexdigest() not in skip:
@@ -821,8 +861,19 @@ def run_gemini(a, cfg, spec, task):
         images += find_inline_images(resp, skip)
         usage = resp.get("usage") or resp.get("usageMetadata") or resp.get("usage_metadata") or usage
         if not images:
-            die(f"no image in response: {json.dumps(resp)[:1500]}")
+            die(f"no image in the answer: {brief_response(resp)}")
     finish(a, cfg, spec, task, model, prompt, params, refs, images, usage, t0)
+
+
+def brief_response(resp):
+    """The provider's answer without base64 blobs, short enough to read (e.g. a text reply or a block reason)."""
+    def strip(o):
+        if isinstance(o, dict):
+            return {k: ("<data>" if k == "data" and isinstance(v, str) and len(v) > 200 else strip(v)) for k, v in o.items()}
+        if isinstance(o, list):
+            return [strip(v) for v in o]
+        return o
+    return json.dumps(strip(resp), ensure_ascii=False)[:600]
 
 
 def find_inline_images(obj, skip=()):
@@ -838,7 +889,7 @@ def find_inline_images(obj, skip=()):
                 if isinstance(o.get(k), dict) and isinstance(o[k].get("data"), str):
                     data, mime = o[k]["data"], o[k].get("mimeType") or o[k].get("mime_type")
             if data:
-                raw = base64.b64decode(data)
+                raw = b64_image(data)
                 digest = hashlib.sha1(raw).hexdigest()
                 if digest not in seen:
                     seen.add(digest)
@@ -1005,12 +1056,11 @@ def run_fal(a, cfg, spec, task):
                 json.dumps(body).encode())
     images = []
     for item in resp.get("images", []) or []:
-        url = item.get("url", "")
+        url = item.get("url", "") if isinstance(item, dict) else ""
         if url.startswith("data:"):
-            data = base64.b64decode(url.split(",", 1)[1])
+            data = b64_image(url.split(",", 1)[-1])
         elif url:
-            with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
-                data = r.read()
+            data = download(url)
         else:
             continue
         images.append((data, item.get("content_type") or sniff(data)))
@@ -1091,6 +1141,16 @@ RUNNERS = {"openai": run_openai, "openai-compatible": run_openai, "xai": run_xai
            "fal": run_fal}
 
 
+def api_message(spec, e):
+    """A provider error in plain words, with what to do for the common cases."""
+    hint = {401: "the key was rejected. Check it in ImageGenKit › Settings › Providers",
+            403: "access denied. Check the key and the account's permissions",
+            429: "too many requests or no credits left. Wait a bit or check the account's billing"}.get(e.status)
+    if e.status and e.status >= 500:
+        hint = "the provider has a problem right now. Try again later"
+    return f"{spec['label']}: " + (f"{hint} (HTTP {e.status}: {e.message[:300]})" if hint else str(e)[:400])
+
+
 def run_provider(a, cfg):
     spec = all_providers(cfg)[a.cmd]
     try:
@@ -1099,6 +1159,8 @@ def run_provider(a, cfg):
         RUNNERS[spec["type"]](a, cfg, spec, None)
     except Unavailable as e:
         die(f"{spec['name']}: {e}")
+    except ApiError as e:
+        die(api_message(spec, e))
 
 
 def run_task(a, cfg):
@@ -1147,7 +1209,7 @@ def run_task(a, cfg):
             skipped.append(f"{name}: {e}")
         except ApiError as e:
             if e.status not in (401, 403):
-                raise
+                die(api_message(spec, e))
             skipped.append(f"{name}: {e}")
     die(f"no provider ready for '{task}' ({'; '.join(skipped) or 'none configured'}). "
         "Set one up in the ImageGenKit app, or: imagegenkit set-key openai")
@@ -1555,6 +1617,10 @@ def main():
         die(str(e))
     except KeyboardInterrupt:
         die("interrupted", 130)
+    except Exception as e:  # never show a traceback to non-technical users
+        if os.environ.get("IMAGEGENKIT_DEBUG"):
+            raise
+        die(f"unexpected error: {type(e).__name__}: {e} (set IMAGEGENKIT_DEBUG=1 for details)")
 
 
 if __name__ == "__main__":

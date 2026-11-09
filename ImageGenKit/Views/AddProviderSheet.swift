@@ -101,13 +101,13 @@ struct AddProviderPicker: View {
                     ForEach(entries) { e in
                         let isAdded = added.contains(e.id)
                         AddProviderCard(color: ProviderStyle.color(e.id), title: e.name, tagline: e.tagline,
-                                        price: e.priceHint, beta: e.beta, added: isAdded) {
+                                        price: e.priceHint, untested: !e.tested, added: isAdded) {
                             choose(AddProviderTarget(info: AddProviderSheet.info(for: e, config: config), entry: e))
                         }
                         .disabled(isAdded)
                     }
                     AddProviderCard(color: .gray, title: "Other API", tagline: "Any OpenAI-compatible image API.",
-                                    price: nil, beta: false, added: false, symbol: "server.rack", action: custom)
+                                    price: nil, untested: false, added: false, symbol: "server.rack", action: custom)
                 }
                 .padding(2)
             }
@@ -128,7 +128,7 @@ struct AddProviderCard: View {
     let title: String
     let tagline: String
     let price: String?
-    let beta: Bool
+    let untested: Bool
     let added: Bool
     var symbol: String?
     let action: () -> Void
@@ -149,7 +149,7 @@ struct AddProviderCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(title).font(.body.weight(.semibold))
-                        if beta { Pill(text: "Untested") }
+                        if untested { Pill(text: "Untested") }
                     }
                     Text(tagline).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                     if let price, !price.isEmpty {
@@ -191,15 +191,18 @@ struct AddProviderSetup: View {
     @Environment(Installer.self) private var installer
     @State private var key = ""
     @State private var phase: AddProviderPhase = .idle
+    @State private var tick = 0  // re-reads install/login ticks (files on disk aren't observable)
     @FocusState private var keyFocused: Bool
 
     private var info: ProviderInfo { target.info }
     private var isLogin: Bool { !info.needsKey }
+    private var untested: Bool { target.entry.map { !$0.tested } ?? false }
     private var steps: [CatalogProvider.Step] {
         if let s = target.entry?.steps, !s.isEmpty { return s }
         if isLogin {
-            return [.init(text: "Install Grok Build.", button: nil, url: nil, action: "install-grok"),
-                    .init(text: "Log in to your Grok account.", button: nil, url: nil, action: "login-grok")]
+            let (tool, app) = info.kind == .codex ? ("codex", "Codex") : ("grok", "Grok Build")
+            return [.init(text: "Install \(app).", button: nil, url: nil, action: "install-\(tool)"),
+                    .init(text: "Log in to your account.", button: nil, url: nil, action: "login-\(tool)")]
         }
         return [.init(text: "Paste your API key below.", button: info.keyURL == nil ? nil : "Get Key", url: info.keyURL, action: nil)]
     }
@@ -208,8 +211,14 @@ struct AddProviderSetup: View {
         VStack(alignment: .leading, spacing: 20) {
             header
             VStack(alignment: .leading, spacing: 14) {
+                let _ = tick
                 ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
                     AddProviderStepRow(number: i + 1, step: step, done: stepDone(step), enabled: stepEnabled(step))
+                }
+                if untested {
+                    Label("Not tested by us yet.", systemImage: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(16)
@@ -224,11 +233,15 @@ struct AddProviderSetup: View {
             guard isLogin else { return }
             while !Task.isCancelled {
                 await status.refresh([info])
+                tick &+= 1
                 try? await Task.sleep(for: .seconds(2))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await status.refresh([info]) }
+            Task {
+                await status.refresh([info])
+                tick &+= 1
+            }
         }
         .onAppear { if !isLogin { keyFocused = true } }
     }
@@ -250,7 +263,7 @@ struct AddProviderSetup: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(target.entry?.name ?? info.label).font(.title2.weight(.semibold))
-                    if target.entry?.beta == true { Pill(text: "Untested") }
+                    if untested { Pill(text: "Untested") }
                 }
                 if let hint = target.entry?.priceHint, !hint.isEmpty {
                     Text(hint).font(.callout).foregroundStyle(.secondary)
@@ -331,16 +344,18 @@ struct AddProviderSetup: View {
 
     // MARK: Steps
 
+    /// nil for plain steps; install/login steps tick themselves off.
     private func stepDone(_ step: CatalogProvider.Step) -> Bool? {
-        switch step.action {
-        case "install-grok": status.grokInstalled
-        case "login-grok": status.state(info.id).isReady
-        default: nil
-        }
+        guard let action = step.action, SetupAction.command(action) != nil else { return nil }
+        if action.hasPrefix("login-") && status.state(info.id).isReady { return true }
+        return SetupAction.isDone(action)
     }
 
+    /// A login step waits for its install step.
     private func stepEnabled(_ step: CatalogProvider.Step) -> Bool {
-        step.action == "login-grok" ? status.grokInstalled : true
+        guard let action = step.action, action.hasPrefix("login-") else { return true }
+        let install = "install-" + action.dropFirst("login-".count)
+        return SetupAction.command(install) == nil || SetupAction.isDone(install)
     }
 
     // MARK: Actions
@@ -415,15 +430,12 @@ struct AddProviderStepRow: View {
     }
 
     private var button: (String, () -> Void)? {
-        switch step.action {
-        case "install-grok":
-            return ("Install", { TerminalRunner.run("curl -fsSL https://x.ai/cli/install.sh | bash") })
-        case "login-grok":
-            return ("Log In", { TerminalRunner.run("grok login") })
-        default:
-            guard let url = step.url else { return nil }
-            return (step.button ?? "Open", { Actions.open(url) })
+        if let action = step.action, let command = SetupAction.command(action) {
+            let title = step.button ?? (action.hasPrefix("install-") ? "Install" : action.hasPrefix("login-") ? "Log In" : "Run")
+            return (title, { TerminalRunner.run(command) })
         }
+        guard let url = step.url else { return nil }
+        return (step.button ?? "Open", { Actions.open(url) })
     }
 }
 

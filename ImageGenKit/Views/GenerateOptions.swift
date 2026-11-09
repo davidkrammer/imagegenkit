@@ -25,21 +25,71 @@ enum GenerateSpec {
     }
 
     static let counts = ["1", "2", "3", "4"]
-    static let qualities = ["auto", "low", "medium", "high"]
-    static let backgrounds = ["auto", "opaque", "transparent"]
-    static let formats = ["png", "jpeg", "webp"]
     static let moderations = ["auto", "low"]
 
+    /// Quality levels the provider understands ("" / "auto" = provider default). Codex gets it as a hint.
+    static func qualities(_ kind: ProviderKind) -> [String] {
+        switch kind {
+        case .openai, .openrouter, .codex: ["low", "medium", "high"]
+        default: []
+        }
+    }
+
+    /// Background options; Codex only understands a "transparent" hint.
+    static func backgrounds(_ kind: ProviderKind) -> [String] {
+        switch kind {
+        case .openai: ["auto", "opaque", "transparent"]
+        case .codex: ["auto", "transparent"]
+        default: []
+        }
+    }
+
+    static func formats(_ kind: ProviderKind) -> [String] {
+        switch kind {
+        case .openai, .openrouter: ["png", "jpeg", "webp"]
+        case .together, .fal: ["png", "jpeg"]
+        default: []
+        }
+    }
+
     static func hasModel(_ kind: ProviderKind) -> Bool { !kind.isSubscription }
+    static func hasEditModel(_ kind: ProviderKind) -> Bool { kind == .openai }
     static func hasMore(_ kind: ProviderKind) -> Bool { kind != .grokBuild }
+
+    /// Whether the provider has any image settings at all.
+    static func hasSettings(_ kind: ProviderKind) -> Bool {
+        hasModel(kind) || !sizes(kind).isEmpty || !qualities(kind).isEmpty || !backgrounds(kind).isEmpty || !formats(kind).isEmpty
+    }
+
+    static func formatLabel(_ f: String) -> String { f == "jpeg" ? "JPEG" : f == "webp" ? "WebP" : f.uppercased() }
+
+    /// What the Generate panel starts with for a provider: its saved default, else a sensible fallback.
+    static func initial(_ p: ProviderInfo, _ key: String, config: ConfigStore) -> String {
+        let saved = config.providerDefault(p.id, key)
+        switch key {
+        case "quality":
+            return qualities(p.kind).contains(saved) ? saved : (p.kind == .openai ? "medium" : "auto")
+        case "resolution":
+            let s = sizes(p.kind)
+            return s.contains(saved) ? saved : (s.isEmpty ? "" : s[min(1, s.count - 1)])
+        case "background":
+            return backgrounds(p.kind).contains(saved) ? saved : "auto"
+        case "format":
+            return formats(p.kind).contains(saved) ? saved : "png"
+        default:
+            return saved
+        }
+    }
 
     /// Default model shown as the field's placeholder.
     static func defaultModel(_ p: ProviderInfo, config: ConfigStore, editing: Bool) -> String {
         switch p.kind {
-        case .openai: config.string(editing ? "openai_edit_model" : "openai_model")
-        case .xai: config.string("xai_model")
-        case .gemini: config.string("gemini_model")
-        case .compatible, .openrouter, .together, .fal: (editing ? p.editModel : nil) ?? p.model ?? ""
+        case .openai:
+            config.providerDefault(p.id, editing ? "edit_model" : "model")
+        case .xai, .gemini:
+            config.providerDefault(p.id, "model")
+        case .compatible, .openrouter, .together, .fal:
+            [config.providerDefault(p.id, "model"), (editing ? p.editModel : nil) ?? p.model ?? ""].first { !$0.isEmpty } ?? ""
         case .grokBuild, .codex: ""
         }
     }
@@ -74,13 +124,19 @@ struct GenerateOptions: Equatable {
         if !sizes.isEmpty { a += ["--resolution", sizes.contains(size) ? size : sizes[min(1, sizes.count - 1)]] }
         if count > 1 { a += ["-n", String(count)] }
         for r in references { a += ["-i", r.path] }
-        if p.kind == .openai {
-            a += ["--quality", quality]
+        switch p.kind {
+        case .openai:
+            a += ["--quality", GenerateSpec.qualities(p.kind).contains(quality) ? quality : "auto"]
             if background != "auto" { a += ["--background", background] }
             a += ["--format", format]
             if format != "png" { a += ["--compression", String(Int(compression))] }
             if moderation != "auto" { a += ["--moderation", moderation] }
             if let mask, !references.isEmpty { a += ["--mask", mask.path] }
+        default:
+            // Other providers: only send what the user picked; the CLI fills in saved defaults.
+            if GenerateSpec.qualities(p.kind).contains(quality) { a += ["--quality", quality] }
+            if background == "transparent", GenerateSpec.backgrounds(p.kind).contains(background) { a += ["--background", background] }
+            if format != "png", GenerateSpec.formats(p.kind).contains(format) { a += ["--format", format] }
         }
         let m = model.trimmingCharacters(in: .whitespacesAndNewlines)
         if GenerateSpec.hasModel(p.kind) && !m.isEmpty { a += ["-m", m] }

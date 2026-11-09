@@ -213,74 +213,20 @@ struct SettingsTasksSection: View {
 
 struct SettingsImagesSection: View {
     @Environment(ConfigStore.self) private var config
-    @Environment(Catalog.self) private var catalog
+    @Environment(ProviderStatus.self) private var status
 
     var body: some View {
+        let enabled = config.enabled(ready: { status.state($0).isReady })
         SettingsSection(title: "Images") {
-            SettingsRow(icon: "dial.medium", title: "Quality") {
-                Picker("Quality", selection: config.binding("quality")) {
-                    Text("Low").tag("low")
-                    Text("Medium").tag("medium")
-                    Text("High").tag("high")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-            }
-            SettingsDivider(inset: 54)
-            SettingsRow(icon: "aspectratio", title: "Size") {
-                Picker("Size", selection: config.binding("resolution")) {
-                    ForEach(["1K", "2K", "4K"], id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-            }
-            SettingsDivider(inset: 54)
             SettingsRow(icon: "folder", title: "Save to", detail: config.string("output_dir")) {
                 Button("Choose…", action: chooseFolder)
             }
-            SettingsDivider(inset: 54)
-            SettingsDisclosure(title: "Models", icon: "cpu") {
-                modelRow("OpenAI", key: "openai_model", provider: "openai")
-                SettingsDivider()
-                modelRow("OpenAI edits", key: "openai_edit_model", provider: "openai")
-                SettingsDivider()
-                modelRow("xAI API", key: "xai_model", provider: "xai")
-                SettingsDivider()
-                modelRow("Gemini", key: "gemini_model", provider: "gemini")
+            ForEach(enabled) { p in
+                SettingsDivider(inset: 54)
+                SettingsProviderImageRow(provider: p)
             }
             SettingsDivider(inset: 54)
             SettingsPricesSection()
-        }
-    }
-
-    private func modelRow(_ title: String, key: String, provider: String) -> some View {
-        let binding = config.binding(key)
-        let models = catalog.entry(provider)?.models ?? []
-        return SettingsRow(title: title) {
-            HStack(spacing: 4) {
-                TextField(title, text: binding)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.callout.monospaced())
-                    .labelsHidden()
-                    .frame(width: 230)
-                if !models.isEmpty {
-                    Menu {
-                        ForEach(models, id: \.self) { m in
-                            Button { binding.wrappedValue = m } label: {
-                                if m == binding.wrappedValue { Label(m, systemImage: "checkmark") } else { Text(m) }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "chevron.up.chevron.down")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("Suggestions")
-                }
-            }
         }
     }
 
@@ -370,7 +316,14 @@ struct SettingsAboutSection: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             SettingsDivider()
-            HStack {
+            HStack(spacing: 18) {
+                Button {
+                    NotificationCenter.default.post(Notification(name: Notification.Name("ImageGenKitShowOnboarding")))
+                } label: {
+                    Label("Show Welcome Tour", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Theme.accent)
                 Link(destination: Updater.homepage) {
                     Label("GitHub", systemImage: "arrow.up.right.square")
                 }

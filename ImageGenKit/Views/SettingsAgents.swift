@@ -9,7 +9,7 @@ struct SettingsAgentsSection: View {
     @State private var removingLegacy = false
 
     var body: some View {
-        SettingsSection(title: "Agents") {
+        SettingsSection(title: "Agents", icon: "terminal.fill", lead: "Let Claude Code and Codex make images.") {
             Menu {
                 ForEach(SnippetTarget.allCases) { t in
                     let added = installer.snippets[t] == true
@@ -33,7 +33,7 @@ struct SettingsAgentsSection: View {
                 cliAction
             }
             ForEach(SkillTarget.allCases) { t in
-                SettingsDivider(inset: 54)
+                SettingsDivider(inset: 58)
                 SettingsRow(icon: t == .claude ? "asterisk" : "chevron.left.forwardslash.chevron.right",
                             tint: t == .claude ? .orange : .teal,
                             title: t == .claude ? "Claude Code" : "Codex",
@@ -42,19 +42,19 @@ struct SettingsAgentsSection: View {
                 }
             }
             if installer.python == .missing {
-                SettingsDivider(inset: 54)
+                SettingsDivider(inset: 58)
                 SettingsRow(icon: "exclamationmark.triangle.fill", tint: .orange, title: "Python 3", detail: "Missing") {
                     Button("Install") { installer.installCommandLineTools() }
                 }
             }
             if installer.inPath == false, installer.cli != .missing {
-                SettingsDivider(inset: 54)
+                SettingsDivider(inset: 58)
                 SettingsRow(icon: "exclamationmark.triangle.fill", tint: .orange, title: "Terminal", detail: "imagegenkit isn't on your PATH") {
                     busyButton("path", "Fix") { await installer.addToPath() }
                 }
             }
             if installer.legacyFound {
-                SettingsDivider(inset: 54)
+                SettingsDivider(inset: 58)
                 SettingsRow(icon: "clock.arrow.circlepath", tint: .gray, title: "Old imagegen", detail: "No longer needed") {
                     Button(role: .destructive) { removingLegacy = true } label: { DestructiveLabel(title: "Remove") }
                 }
@@ -68,7 +68,8 @@ struct SettingsAgentsSection: View {
             }
             SettingsDivider()
             CommandField(command: "imagegenkit providers", runnable: true)
-                .padding(12)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
         }
         .alert("Replace \(replacing == .claude ? "Claude Code" : "Codex") skill?",
                isPresented: Binding(get: { replacing != nil }, set: { if !$0 { replacing = nil } }),
@@ -128,7 +129,7 @@ struct SettingsAgentsSection: View {
     }
 
     private var done: some View {
-        Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(.green)
+        SettingsBadge(text: "Installed")
     }
 
     @ViewBuilder

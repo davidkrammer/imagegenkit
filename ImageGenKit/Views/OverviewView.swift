@@ -186,25 +186,7 @@ private struct OverviewEmptyState: View {
     let generate: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "photo.stack")
-                .font(.system(size: 30, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 68, height: 68)
-                .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-            Text("Your images will show up here.")
-                .font(.title3.weight(.medium))
-            HStack(spacing: 10) {
-                Button("Add a provider", action: addProvider)
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .buttonBorderShape(.capsule)
-                Button(action: generate) { Label("Generate", systemImage: "sparkles") }
-                    .buttonStyle(PrimaryButtonStyle())
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.background)
+        OnboardingFirstSteps(generate: generate)
     }
 }
 

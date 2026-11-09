@@ -39,6 +39,9 @@ struct ImageGenKitApp: App {
                 }
                 .keyboardShortcut("r")
             }
+            CommandGroup(replacing: .help) {
+                Button("Welcome Tour…") { OnboardingStore.show() }
+            }
         }
 
         Settings {

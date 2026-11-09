@@ -53,7 +53,7 @@ struct SettingsView: View {
         .scrollEdgeEffectStyle(.soft, for: .all)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
-        .sheet(item: $sheet) { AddProviderSheet(route: $0) }
+        .sheet(item: $sheet) { AddProviderSheet(route: $0).dismissOnQuit() }
         .task {
             config.reload()
             await status.refresh(config.providers)
@@ -301,7 +301,7 @@ struct SettingsPricesSection: View {
             HStack {
                 Spacer()
                 Button("Reset to Defaults") { config.resetPrices() }
-                    .buttonStyle(.link)
+                    .buttonStyle(.link).foregroundStyle(Theme.accent)
                     .font(.callout)
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
@@ -373,7 +373,7 @@ struct SettingsAboutSection: View {
                 }
                 .help("ImageGenKit is free. A donation helps keep it going.")
             }
-            .buttonStyle(.link)
+            .buttonStyle(.link).foregroundStyle(Theme.accent)
             .font(.callout)
             .padding(.top, 14)
 

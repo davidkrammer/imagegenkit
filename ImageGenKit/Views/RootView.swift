@@ -43,7 +43,7 @@ struct RootView: View {
             }
             .background(Theme.background)
         }
-        .sheet(isPresented: $showGenerate) { GenerateView() }
+        .sheet(isPresented: $showGenerate) { GenerateView().dismissOnQuit() }
         .background(GenerateDebugPresenter())
         .background(OnboardingPresenter { destination in
             switch destination {

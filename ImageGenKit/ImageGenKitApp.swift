@@ -48,6 +48,10 @@ struct ImageGenKitApp: App {
                 }
                 .keyboardShortcut("r")
             }
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit ImageGenKit") { AppDelegate.quit() }
+                    .keyboardShortcut("q")
+            }
             CommandGroup(replacing: .help) {
                 Button("Welcome Tour…") { OnboardingStore.show() }
                 Divider()
@@ -114,6 +118,32 @@ extension ImageGenKitApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MenuBarDock.shared.install()
+        #if DEBUG
+        // `-debugQuitAfter 8`: the same path as ⌘Q, after n seconds (tests quitting with a sheet open).
+        let delay = UserDefaults.standard.double(forKey: "debugQuitAfter")
+        if delay > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + delay) { AppDelegate.quit() } }
+        #endif
+    }
+
+    /// Quit even while a sheet is open (like the welcome tour on first launch): AppKit refuses to terminate while a
+    /// sheet is attached, so the sheets close first. If one doesn't within 2 s, settings are flushed and the app exits.
+    static func quit() {
+        guard hasSheets else { NSApp.terminate(nil); return }
+        NotificationCenter.default.post(name: .imageGenKitDismissSheets, object: nil)
+        terminateWhenSheetsClosed(tries: 20)
+    }
+
+    private static var hasSheets: Bool { NSApp.windows.contains { $0.attachedSheet != nil } }
+
+    private static func terminateWhenSheetsClosed(tries: Int) {
+        if !hasSheets {
+            NSApp.terminate(nil)
+        } else if tries == 0 {
+            UserDefaults.standard.synchronize()
+            exit(0)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { terminateWhenSheetsClosed(tries: tries - 1) }
+        }
     }
 
     /// With the menu bar item shown, closing the window keeps the app running there.

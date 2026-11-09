@@ -32,7 +32,7 @@ struct OnboardingFirstSteps: View {
                 }
 
                 Button("Take the Tour") { OnboardingStore.show() }
-                    .buttonStyle(.link)
+                    .buttonStyle(.link).foregroundStyle(Theme.accent)
                     .font(.callout)
             }
             .frame(maxWidth: 480)
@@ -41,7 +41,7 @@ struct OnboardingFirstSteps: View {
         }
         .scrollEdgeEffectStyle(.soft, for: .all)
         .background(Theme.background)
-        .sheet(item: $route, onDismiss: { Task { await status.refresh(config.providers) } }) { AddProviderSheet(route: $0) }
+        .sheet(item: $route, onDismiss: { Task { await status.refresh(config.providers) } }) { AddProviderSheet(route: $0).dismissOnQuit() }
     }
 }
 

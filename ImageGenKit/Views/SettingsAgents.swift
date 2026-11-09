@@ -22,12 +22,12 @@ struct SettingsAgentsSection: View {
                 Divider()
                 Button("Copy Note", systemImage: "doc.on.doc") { Actions.copy(Installer.snippet) }
             } label: {
-                Image(systemName: "ellipsis.circle").font(.title3)
+                Label("Agent Note", systemImage: "doc.badge.plus")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .menuStyle(.button)
+            .buttonStyle(.bordered)
             .fixedSize()
-            .help("Agent notes")
+            .help("Add a short note about imagegenkit to CLAUDE.md or AGENTS.md. Optional: the skills already cover it.")
         } content: {
             SettingsRow(icon: "terminal", tint: .gray, title: "Command line tool", detail: detail(installer.cli)) {
                 cliAction

@@ -56,7 +56,7 @@ struct OnboardingProviderStep: View {
             }
         }
         .sheet(item: $route, onDismiss: sheetClosed) { route in
-            AddProviderSheet(route: route)
+            AddProviderSheet(route: route).dismissOnQuit()
         }
         .onChange(of: route) { _, r in keys.sheetOpen = r != nil }
         .task {
@@ -91,7 +91,7 @@ struct OnboardingProviderStep: View {
                     Button { useFound() } label: { Label("Use \(pending.count == 1 ? "this" : "these")", systemImage: "checkmark") }
                         .buttonStyle(.borderedProminent)
                 }
-                Button("Add another") { open(.add) }.buttonStyle(.link)
+                Button("Add another") { open(.add) }.buttonStyle(.link).foregroundStyle(Theme.accent)
             }
             .onboardingEnter(min(found.count, 3))
         }
@@ -121,7 +121,7 @@ struct OnboardingProviderStep: View {
                     .onboardingPop()
                 Text(text).font(.system(size: 15, weight: .semibold))
             }
-            Button("Add another") { open(.add) }.buttonStyle(.link)
+            Button("Add another") { open(.add) }.buttonStyle(.link).foregroundStyle(Theme.accent)
         }
     }
 
@@ -301,7 +301,7 @@ struct OnboardingAgentsStep: View {
                         if installer.python == .missing {
                             VStack(alignment: .trailing, spacing: 4) {
                                 Text("Python is missing.").font(.callout.weight(.medium)).foregroundStyle(.orange)
-                                Button("Install it") { installer.installCommandLineTools() }.buttonStyle(.link)
+                                Button("Install it") { installer.installCommandLineTools() }.buttonStyle(.link).foregroundStyle(Theme.accent)
                             }
                         }
                         if let error = installer.lastError, !running {

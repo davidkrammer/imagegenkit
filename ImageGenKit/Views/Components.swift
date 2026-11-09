@@ -345,3 +345,23 @@ nonisolated struct AppGlyphShape: Shape {
         return path
     }
 }
+
+
+// MARK: - Quit with a sheet open
+
+extension Notification.Name {
+    /// Posted before quitting: AppKit won't terminate while a sheet is attached.
+    static let imageGenKitDismissSheets = Notification.Name("ImageGenKitDismissSheets")
+}
+
+private struct DismissOnQuit: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .imageGenKitDismissSheets)) { _ in dismiss() }
+    }
+}
+
+extension View {
+    /// For sheet content: closes the sheet when the app quits.
+    func dismissOnQuit() -> some View { modifier(DismissOnQuit()) }
+}

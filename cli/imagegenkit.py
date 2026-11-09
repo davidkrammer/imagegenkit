@@ -261,6 +261,8 @@ def all_providers(cfg):
     # Catalog providers the app would add (OpenRouter, Recraft, ...), so they work without the app too.
     for e in catalog_providers():
         name = e["id"]
+        if name in out and out[name].get("catalog") == name and e.get("edits") is False:
+            out[name].setdefault("edits", False)  # added by the app: capability flags still come from the catalog
         if name in out or name in RESERVED or e.get("adapter") not in CUSTOM_TYPES or not e.get("base_url"):
             continue
         s = {"type": e["adapter"], "label": e.get("name") or name, "catalog": name, "base_url": e["base_url"],
@@ -269,6 +271,8 @@ def all_providers(cfg):
         for k in ("edit_model", "size_style"):
             if e.get(k):
                 s[k] = e[k]
+        if e.get("edits") is False:
+            s["edits"] = False
         out[name] = s
     return out
 
@@ -779,6 +783,8 @@ def run_openai(a, cfg, spec, task):
     key = "<dry-run>" if a.dry_run else require_key(spec)
     prompt = read_prompt(a)
     refs = check_refs(a.image)
+    if refs and spec.get("edits") is False:
+        die(f"{spec['label']}: reference images aren't supported; use another provider for edits")
     mask = check_refs([a.mask])[0] if a.mask else None
     official = spec["type"] == "openai"
     if official:

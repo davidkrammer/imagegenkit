@@ -32,7 +32,7 @@ struct EntryDetailView: View {
         }
         .background(Theme.background)
         .sheet(item: $reference) { ref in
-            GenerateView(references: [ref.url])
+            GenerateView(references: [ref.url]).dismissOnQuit()
         }
         .onChange(of: entry.id) { promptExpanded = false }
     }
@@ -54,7 +54,7 @@ struct EntryDetailView: View {
                 Button(promptExpanded ? "Less" : "More") {
                     withAnimation(.smooth(duration: 0.25)) { promptExpanded.toggle() }
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.link).foregroundStyle(Theme.accent)
                 .font(.callout)
             }
         }

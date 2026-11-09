@@ -219,7 +219,7 @@ struct OnboardingDemoStep: View {
                     Text("That's it. The real one works the same.").foregroundStyle(.secondary)
                 } else {
                     Button(showing ? "Showing…" : "Show me") { showMe() }
-                        .buttonStyle(.link)
+                        .buttonStyle(.link).foregroundStyle(Theme.accent)
                         .disabled(showing)
                 }
                 Spacer(minLength: 0)

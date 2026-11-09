@@ -65,7 +65,7 @@ struct GalleryView: View {
             }
         }
         .navigationSubtitle(items.count == 1 ? "1 image" : "\(items.count) images")
-        .sheet(isPresented: $showGenerate) { GenerateView() }
+        .sheet(isPresented: $showGenerate) { GenerateView().dismissOnQuit() }
     }
 
     private func tile(_ item: GalleryItem) -> some View {

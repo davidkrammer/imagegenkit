@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-09T04:00",
+  "updated": "2026-11-09T07:00",
   "providers": [
     {
       "id": "openai",
@@ -143,7 +143,7 @@
           "text": "Create an API key and copy it."
         },
         {
-          "text": "Click Set up billing and add a payment method. Image models aren't on the free tier."
+          "text": "Click \u201cSet up billing\u201d and add a payment method. Image models aren't on the free tier."
         },
         {
           "text": "Paste the key below."
@@ -210,7 +210,8 @@
       "base_url": "https://external.api.recraft.ai/v1",
       "model": "recraftv4_1",
       "size_style": "aspect",
-      "tagline": "Design-focused images, illustrations and icons.",
+      "edits": false,
+      "tagline": "Design-focused images, illustrations and icons. New images only, no edits.",
       "price_hint": "About $0.01–0.04 per image",
       "key_url": "https://www.recraft.ai/app/api/api-keys",
       "steps": [
@@ -225,10 +226,10 @@
           "url": "https://www.recraft.ai/app/api/billing"
         },
         {
-          "text": "Create a token and copy it."
+          "text": "Create an API key (Recraft calls it a token) and copy it."
         },
         {
-          "text": "Paste the token below."
+          "text": "Paste the key below."
         }
       ],
       "prices": {

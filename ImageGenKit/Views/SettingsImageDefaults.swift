@@ -110,7 +110,7 @@ struct SettingsProviderImageRow: View {
         }
     }
 
-    /// OpenAI's quality and size always have a value (the CLI's old global defaults), so no "Default" there.
+    /// OpenAI's quality and size always have a value (the CLI's old global defaults), so no "Auto" there.
     private func hasFallback(_ key: String) -> Bool {
         kind == .openai && (key == "quality" || key == "resolution")
     }
@@ -121,7 +121,7 @@ struct SettingsProviderImageRow: View {
         return GenerateSegmented(options: options, selection: Binding(
             get: { options.contains(binding.wrappedValue) ? binding.wrappedValue : (options.first ?? "") },
             set: { binding.wrappedValue = $0 }
-        ), label: { $0.isEmpty ? "Default" : label($0) })
+        ), label: { $0.isEmpty ? GenerateSpec.auto : label($0) })
     }
 
     private func modelField(_ key: String, editing: Bool) -> some View {

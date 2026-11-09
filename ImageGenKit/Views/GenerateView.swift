@@ -300,7 +300,7 @@ struct GenerateView: View {
                 .textSelection(.enabled)
             if !error.details.isEmpty {
                 Button("Details") { showDetails.toggle() }
-                    .buttonStyle(.link)
+                    .buttonStyle(.link).foregroundStyle(Theme.accent)
                     .popover(isPresented: $showDetails, arrowEdge: .bottom) {
                         ScrollView {
                             Text(error.details)
@@ -695,7 +695,7 @@ struct GenerateDebugPresenter: View {
     var body: some View {
         #if DEBUG
         Color.clear.frame(width: 0, height: 0)
-            .sheet(isPresented: $show) { GenerateView() }
+            .sheet(isPresented: $show) { GenerateView().dismissOnQuit() }
         #else
         EmptyView()
         #endif

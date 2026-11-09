@@ -16,7 +16,7 @@ struct SettingsGeneralSection: View {
                 HStack(spacing: 10) {
                     if loginStatus == .requiresApproval {
                         Button("Allow…") { SMAppService.openSystemSettingsLoginItems() }
-                            .buttonStyle(.link)
+                            .buttonStyle(.link).foregroundStyle(Theme.accent)
                     }
                     Toggle("Open at login", isOn: loginBinding).labelsHidden().toggleStyle(.switch).tint(Theme.switchTint)
                 }

@@ -42,6 +42,7 @@ struct OnboardingPresenter: View {
 
     var body: some View {
         Color.clear.frame(width: 0, height: 0)
+            .onReceive(NotificationCenter.default.publisher(for: .imageGenKitDismissSheets)) { _ in open = false }
             .sheet(isPresented: $open, onDismiss: OnboardingStore.markSeen) {
                 OnboardingTour(start: start) { destination in
                     OnboardingStore.markSeen()

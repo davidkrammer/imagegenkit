@@ -280,3 +280,63 @@ struct AppIconView: View {
             .accessibilityHidden(true)
     }
 }
+
+/// The logo mark alone (viewfinder + sparkles), in the text color — for the few places that show branding.
+/// Same geometry as AppIcon.icon (1024-point canvas).
+struct AppGlyph: View {
+    var size: CGFloat = 40
+
+    var body: some View {
+        ZStack {
+            AppGlyphShape(part: .viewfinder).fill(.primary.opacity(0.45))
+            AppGlyphShape(part: .sparkles).fill(.primary)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+nonisolated struct AppGlyphShape: Shape {
+    enum Part { case viewfinder, sparkles }
+    let part: Part
+
+    func path(in rect: CGRect) -> Path {
+        // The mark sits inside 196...828; scale it to fill the frame with a little margin.
+        let inset: CGFloat = 176, span: CGFloat = 1024 - 2 * inset
+        let k = min(rect.width, rect.height) / span
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + (x - inset) * k, y: rect.minY + (y - inset) * k)
+        }
+        var path = Path()
+        switch part {
+        case .sparkles:
+            for (cx, cy, r, c) in [(500.0, 536.0, 200.0, 52.0), (690.0, 342.0, 68.0, 17.0)] {
+                path.move(to: p(cx, cy - r))
+                path.addQuadCurve(to: p(cx + r, cy), control: p(cx + c, cy - c))
+                path.addQuadCurve(to: p(cx, cy + r), control: p(cx + c, cy + c))
+                path.addQuadCurve(to: p(cx - r, cy), control: p(cx - c, cy + c))
+                path.addQuadCurve(to: p(cx, cy - r), control: p(cx - c, cy - c))
+                path.closeSubpath()
+            }
+        case .viewfinder:
+            let t: CGFloat = 56, arm: CGFloat = 170, rad: CGFloat = 92
+            for (x, y, sx, sy) in [(196.0, 196.0, 1.0, 1.0), (828.0, 196.0, -1.0, 1.0),
+                                   (828.0, 828.0, -1.0, -1.0), (196.0, 828.0, 1.0, -1.0)] {
+                func q(_ dx: CGFloat, _ dy: CGFloat) -> CGPoint { p(x + sx * dx, y + sy * dy) }
+                var corner = Path()
+                corner.move(to: q(0, arm))
+                corner.addLine(to: q(0, rad))
+                corner.addQuadCurve(to: q(rad, 0), control: q(0, 0))
+                corner.addLine(to: q(arm, 0))
+                corner.addQuadCurve(to: q(arm, t), control: q(arm + t / 2, t / 2))
+                corner.addLine(to: q(rad, t))
+                corner.addQuadCurve(to: q(t, rad), control: q(t, t))
+                corner.addLine(to: q(t, arm))
+                corner.addQuadCurve(to: q(0, arm), control: q(t / 2, arm + t / 2))
+                corner.closeSubpath()
+                path.addPath(corner)
+            }
+        }
+        return path
+    }
+}

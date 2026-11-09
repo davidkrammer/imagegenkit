@@ -1,24 +1,6 @@
 import AppKit
 import SwiftUI
 
-enum GenerateColors {
-    /// Selected segment / raised chip, a step above `Theme.well` in both modes.
-    static let raised = Color(light: 0xFFFFFF, dark: 0x4A4A50)
-}
-
-/// Caption above a control.
-struct GenerateField<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-            content
-        }
-    }
-}
-
 /// Native segmented control.
 struct GenerateSegmented: View {
     let options: [String]
@@ -140,6 +122,25 @@ struct GenerateReferenceTile: View {
     }
 }
 
+/// Small round-cornered reference thumbnail (prompt summary).
+struct GenerateReferenceThumb: View {
+    let url: URL
+    var size: CGFloat = 32
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            Theme.card
+            if let image { Image(decorative: image, scale: 1).resizable().scaledToFill() }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.well, lineWidth: 2))
+        .help(url.lastPathComponent)
+        .task(id: url) { image = await GenerateImageLoader.load(url, maxPixel: Int(size * 3)) }
+    }
+}
+
 /// Dashed "+" tile for adding references.
 struct GenerateAddTile: View {
     var size: CGFloat = 56
@@ -172,27 +173,32 @@ struct GenerateResultTile: View {
     @State private var image: CGImage?
     @State private var hover = false
     @State private var copied = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 10) {
-            if let image {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
-                    .scaleEffect(hover ? 1.01 : 1)
-                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { Actions.open(url) }
-                    .onHover { hover = $0 }
-                    .animation(.easeOut(duration: 0.18), value: hover)
-                    .draggable(url)
-                    .contextMenu { menu }
-                    .help("Double-click to open")
-            } else {
-                ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 12) {
+            ZStack {
+                if let image {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                        .shadow(color: .black.opacity(hover ? 0.24 : 0.16), radius: hover ? 16 : 12, y: hover ? 8 : 6)
+                        .scaleEffect(hover ? 1.012 : 1)
+                        .transition(reduceMotion ? .opacity : .modifier(active: GenerateReveal(amount: 1), identity: GenerateReveal(amount: 0)))
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { Actions.open(url) }
+                        .onHover { hover = $0 }
+                        .animation(.easeOut(duration: 0.18), value: hover)
+                        .draggable(url)
+                        .contextMenu { menu }
+                        .help("Double-click to open")
+                } else {
+                    GenerateCanvasPlaceholder(aspect: GenerateSpec.auto)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack(spacing: compact ? 4 : 8) {
                 action("Open", "arrow.up.forward.square") { Actions.open(url) }
@@ -208,7 +214,7 @@ struct GenerateResultTile: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: url) {
             let loaded = await GenerateImageLoader.load(url, maxPixel: 1400)
-            withAnimation(.easeOut(duration: 0.3)) { image = loaded }
+            withAnimation(.smooth(duration: 0.6)) { image = loaded }
         }
     }
 
@@ -231,43 +237,6 @@ struct GenerateResultTile: View {
     }
 }
 
-/// Calm "working" state with elapsed seconds.
-struct GenerateProgressView: View {
-    let start: Date
-    let provider: String
-    @State private var spin = false
-
-    var body: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(AngularGradient(colors: [Theme.accent.opacity(0.05), Theme.accent.opacity(0.5), Color.purple.opacity(0.35),
-                                                   Theme.accent.opacity(0.05)], center: .center))
-                    .frame(width: 84, height: 84)
-                    .blur(radius: 10)
-                    .rotationEffect(.degrees(spin ? 360 : 0))
-                Image(systemName: "sparkles")
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(Theme.accent)
-                    .symbolEffect(.breathe, options: .repeating)
-            }
-            .onAppear {
-                withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) { spin = true }
-            }
-            VStack(spacing: 4) {
-                TimelineView(.periodic(from: start, by: 1)) { ctx in
-                    Text("Generating · \(Int(max(0, ctx.date.timeIntervalSince(start)))) s")
-                        .font(.headline)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                }
-                Text(provider).font(.callout).foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 enum GenerateFilePicker {
     static func images(multiple: Bool = true) -> [URL] {
         let panel = NSOpenPanel()
@@ -276,18 +245,6 @@ enum GenerateFilePicker {
         panel.allowedContentTypes = [.image]
         panel.prompt = "Add"
         return panel.runModal() == .OK ? panel.urls : []
-    }
-}
-
-/// Label whose icon has its own tint.
-struct GenerateTintedIconLabelStyle: LabelStyle {
-    let tint: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            configuration.icon.foregroundStyle(tint)
-            configuration.title
-        }
     }
 }
 

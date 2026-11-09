@@ -47,15 +47,29 @@ struct GenerateView: View {
         let details: String
     }
 
+    /// Fits under the toolbar of the window it opens on (the window can be as small as 860 × 560).
+    @State private var height: CGFloat
+
     init(references: [URL] = []) {
         self.references = references
         _refs = State(initialValue: references)
+        _height = State(initialValue: Self.fittingHeight())
+    }
+
+    private static func fittingHeight(_ window: NSWindow? = nil) -> CGFloat {
+        let window = window ?? NSApp.mainWindow
+            ?? NSApp.windows.first { $0.styleMask.contains(.titled) && $0.sheetParent == nil && $0.frame.height > 200 }
+        return window.map { max(460, min(590, $0.frame.height - 64)) } ?? 590
     }
 
     // MARK: Derived
 
     private var ready: [ProviderInfo] { config.providers.filter { status.state($0.id).isReady } }
     private var provider: ProviderInfo? { ready.first { $0.id == providerID } ?? ready.first }
+    /// Whether the first provider check has finished (so "no provider" isn't shown too early).
+    private var statusChecked: Bool {
+        config.providers.isEmpty || config.providers.contains { status.state($0.id) != .unknown }
+    }
     private var running: Bool { if case .running = phase { true } else { false } }
     private var canGenerate: Bool {
         provider != nil && !running && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -89,32 +103,44 @@ struct GenerateView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            VStack(alignment: .leading, spacing: 18) {
-                promptCard
+            VStack(alignment: .leading, spacing: 16) {
                 switch phase {
                 case .compose:
+                    promptWell.generateEnter(0)
+                    if let error { errorBanner(error).transition(.opacity.combined(with: .move(edge: .top))) }
                     settings
                 case .running(let start):
-                    GenerateProgressView(start: start, provider: provider?.label ?? "")
+                    promptSummary
+                    GenerateStagePanel { placeholders(start) }
                         .transition(.opacity)
-                case .done(let urls, let seconds):
-                    results(urls, seconds: seconds)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                case .done(let urls, _):
+                    promptSummary
+                    GenerateStagePanel { results(urls) }
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 4)
+            .padding(.horizontal, 26)
+            .padding(.top, 20)
             .padding(.bottom, 18)
             .frame(maxHeight: .infinity, alignment: .top)
             footer
         }
-        .frame(width: 760, height: 620)
-        .background(Theme.background)
+        .frame(width: 720, height: height)
+        .background(Theme.card)
+        .overlay(alignment: .topTrailing) { closeButton }
         .animation(.smooth(duration: 0.3), value: phase)
         .animation(.smooth(duration: 0.25), value: refs)
+        .animation(.smooth(duration: 0.25), value: error)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { note in
+            // Follow the window this sheet is attached to.
+            if let window = note.object as? NSWindow, window.sheetParent == nil, window.attachedSheet != nil {
+                height = Self.fittingHeight(window)
+            }
+        }
         .onChange(of: provider?.id, initial: true) { load(provider) }
         .onChange(of: [size, quality, background, format, model]) { remember() }
         .task {
+            height = Self.fittingHeight()
             if config.providers.contains(where: { status.state($0.id) == .unknown }) {
                 await status.refresh(config.providers)
             }
@@ -128,130 +154,241 @@ struct GenerateView: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: 10) {
-            AppIconView(size: 30)
-            Text("Generate").font(.title3.weight(.semibold))
-            Spacer()
-            Button("Close", systemImage: "xmark") { dismiss() }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .keyboardShortcut(.cancelAction)
-            .help("Close")
+        GenerateHeader(title: "Generate") {
+            switch phase {
+            case .compose:
+                Text(ready.isEmpty && statusChecked ? "Add a provider to start." : "Describe an image, pick a provider.")
+            case .running(let start):
+                TimelineView(.periodic(from: start, by: 1)) { ctx in
+                    Text("\(provider?.label ?? "Working") · \(Int(max(0, ctx.date.timeIntervalSince(start)))) s")
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                }
+            case .done(let urls, let seconds):
+                Text("\(urls.count == 1 ? "1 image" : "\(urls.count) images") in \(seconds) s").monospacedDigit()
+            }
+        } accessory: {
+            switch phase {
+            case .compose: EmptyView()
+            case .running: GenerateTag(text: "Working", pulsing: true)
+            case .done: GenerateTag(text: "Done", color: .green)
+            }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 20)
-        .padding(.bottom, 14)
+    }
+
+    private var closeButton: some View {
+        Button("Close", systemImage: "xmark") { dismiss() }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .keyboardShortcut(.cancelAction)
+            .help("Close")
+            .padding(14)
     }
 
     // MARK: Prompt + references
 
-    private var promptCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var promptWell: some View {
+        VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 if prompt.isEmpty {
-                    Text("Describe the image…")
-                        .font(.system(size: 16))
+                    Text("Describe an image…")
+                        .font(.system(size: 15))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 5)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $prompt)
-                    .font(.system(size: 16))
+                    .font(.system(size: 15))
                     .lineSpacing(3)
                     .scrollContentBackground(.hidden)
                     .focused($promptFocused)
-                    .disabled(running)
             }
-            .frame(minHeight: phase == .compose ? 90 : 44, maxHeight: phase == .compose ? .infinity : 44)
+            .padding(.horizontal, 10)
+            .padding(.top, 12)
+            .frame(minHeight: 70, maxHeight: .infinity)
 
-            if phase == .compose || !refs.isEmpty {
-            HStack(spacing: 10) {
-                ForEach(refs, id: \.self) { url in
-                    GenerateReferenceTile(url: url) { remove(url) }
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                }
-                if refs.isEmpty {
-                    Button(action: pickReferences) {
-                        Label("Add images", systemImage: "photo.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Add reference images, or drop them here")
-                } else if refs.count < 8 {
-                    GenerateAddTile(action: pickReferences)
-                }
-                Spacer(minLength: 0)
-            }
-            .disabled(running)
-            }
+            referenceBar
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .padding(.top, 6)
         }
-        .padding(16)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(dropTargeted ? Theme.accent : Color.primary.opacity(promptFocused ? 0.14 : 0.07),
-                              lineWidth: dropTargeted ? 2 : 1))
-        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+        .background(Theme.well, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(promptFocused ? Theme.accent.opacity(0.7) : Color.primary.opacity(0.05), lineWidth: promptFocused ? 1.5 : 1))
+        .overlay { if dropTargeted { dropOverlay.transition(.opacity) } }
         .dropDestination(for: URL.self) { urls, _ in
             addReferences(urls)
             return urls.contains(where: GenerateImageLoader.isImage)
         } isTargeted: { dropTargeted = $0 }
         .animation(.easeOut(duration: 0.15), value: dropTargeted)
+        .animation(.easeOut(duration: 0.15), value: promptFocused)
+    }
+
+    private var referenceBar: some View {
+        HStack(spacing: 10) {
+            ForEach(refs, id: \.self) { url in
+                GenerateReferenceTile(url: url, size: 52) { remove(url) }
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+            if refs.isEmpty {
+                Button(action: pickReferences) {
+                    Label("Add images", systemImage: "photo.badge.plus")
+                }
+                .buttonStyle(.borderless)
+                .keyboardShortcut("o")
+                .help("Add reference images (⌘O), or drop them here")
+                Text("or drop them here").font(.callout).foregroundStyle(.tertiary)
+            } else if refs.count < 8 {
+                GenerateAddTile(size: 52, action: pickReferences)
+                    .keyboardShortcut("o")
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 30)
+    }
+
+    private var dropOverlay: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(Theme.accent.opacity(0.1))
+            .background(Theme.well, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [7, 5])))
+            .overlay {
+                VStack(spacing: 8) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundStyle(Theme.accent)
+                    Text("Drop to add as reference").font(.headline)
+                }
+            }
+            .allowsHitTesting(false)
+    }
+
+    /// The prompt, read-only, while running and on the results.
+    private var promptSummary: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "text.cursor").foregroundStyle(Theme.accent)
+            Text(prompt.trimmingCharacters(in: .whitespacesAndNewlines))
+                .font(.system(size: 14))
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .help(prompt)
+            if !refs.isEmpty {
+                HStack(spacing: -10) {
+                    ForEach(refs.prefix(4), id: \.self) { url in
+                        GenerateReferenceThumb(url: url, size: 32)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 52)
+        .background(Theme.well, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func errorBanner(_ error: GenerateError) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            Text(error.message)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            if !error.details.isEmpty {
+                Button("Details") { showDetails.toggle() }
+                    .buttonStyle(.link)
+                    .popover(isPresented: $showDetails, arrowEdge: .bottom) {
+                        ScrollView {
+                            Text(error.details)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(14)
+                        }
+                        .frame(width: 460, height: 220)
+                    }
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: Settings
 
     @ViewBuilder private var settings: some View {
         if ready.isEmpty {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.circle").foregroundStyle(.secondary)
-                Text("No provider set up yet.").foregroundStyle(.secondary)
-                SettingsLink { Text("Open Settings") }
+            if statusChecked {
+                noProvider.generateEnter(1)
+            } else {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 150)
             }
-            .font(.callout)
-            .frame(maxWidth: .infinity, minHeight: 120)
         } else if let provider {
-            VStack(alignment: .leading, spacing: 18) {
-                GenerateField(title: "Provider") {
-                    HStack(spacing: 8) {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                GridRow {
+                    rowLabel("Provider")
+                    GenerateFlowLayout(spacing: 8) {
                         ForEach(ready) { p in
                             GenerateProviderChip(provider: p, selected: p.id == provider.id) {
-                                providerID = p.id
+                                withAnimation(.snappy(duration: 0.2)) { providerID = p.id }
                             }
                         }
                     }
                 }
-                commonOptions(provider)
+                .generateEnter(1)
+                GridRow {
+                    rowLabel("Aspect")
+                    let aspects = GenerateSpec.aspects(provider.kind)
+                    let current = validated($aspect, aspects)
+                    HStack(spacing: 10) {
+                        GenerateAspectMenu(options: aspects, selection: current)
+                        GenerateAspectShape(aspect: current.wrappedValue, box: 18)
+                            .foregroundStyle(.secondary)
+                            .animation(.snappy(duration: 0.2), value: current.wrappedValue)
+                    }
+                }
+                .generateEnter(2)
+                let sizes = GenerateSpec.sizes(provider.kind)
+                if !sizes.isEmpty {
+                    GridRow {
+                        rowLabel("Size")
+                        GenerateSegmented(options: sizes, selection: validated($size, sizes, fallback: sizes[min(1, sizes.count - 1)]))
+                    }
+                    .generateEnter(3)
+                }
+                GridRow {
+                    rowLabel("Images")
+                    GenerateSegmented(options: GenerateSpec.counts,
+                                      selection: Binding(get: { String(count) }, set: { count = Int($0) ?? 1 }))
+                }
+                .generateEnter(4)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func commonOptions(_ p: ProviderInfo) -> some View {
-        HStack(alignment: .bottom, spacing: 22) {
-            GenerateField(title: "Aspect") {
-                GenerateAspectMenu(options: GenerateSpec.aspects(p.kind), selection: validated($aspect, GenerateSpec.aspects(p.kind)))
+    private func rowLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            .frame(width: 64, alignment: .leading)
+    }
+
+    /// Looks like a tour step: picture, title, one line, one action.
+    private var noProvider: some View {
+        HStack(spacing: 16) {
+            IconBadge(symbol: "key.fill", size: 44)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No provider yet").font(.system(size: 15, weight: .semibold))
+                Text("Add a Grok, ChatGPT or API account.").font(.callout).foregroundStyle(.secondary)
             }
-            let sizes = GenerateSpec.sizes(p.kind)
-            if !sizes.isEmpty {
-                GenerateField(title: "Size") {
-                    GenerateSegmented(options: sizes, selection: validated($size, sizes, fallback: sizes[min(1, sizes.count - 1)]))
-                }
-            }
-            GenerateField(title: "Images") {
-                GenerateSegmented(options: GenerateSpec.counts,
-                                  selection: Binding(get: { String(count) }, set: { count = Int($0) ?? 1 }))
-            }
-            Spacer(minLength: 0)
-            if GenerateSpec.hasMore(p.kind) {
-                Button {
-                    showMore.toggle()
-                } label: {
-                    Label("More", systemImage: "slider.horizontal.3")
-                }
-                .buttonStyle(.bordered)
-                .popover(isPresented: $showMore, arrowEdge: .bottom) { moreOptions(p) }
-                .help("More options")
-            }
+            Spacer(minLength: 12)
+            SettingsLink { Text("Add Provider") }
+                .buttonStyle(.borderedProminent)
         }
+        .card(padding: 18)
     }
 
     private func moreOptions(_ p: ProviderInfo) -> some View {
@@ -361,65 +498,71 @@ struct GenerateView: View {
         }
     }
 
-    // MARK: Results
+    // MARK: Running + results
 
-    private func results(_ urls: [URL], seconds: Int) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(urls.count == 1 ? "1 image · \(seconds) s" : "\(urls.count) images · \(seconds) s",
-                      systemImage: "checkmark.circle.fill")
-                    .font(.callout.weight(.medium))
-                    .labelStyle(GenerateTintedIconLabelStyle(tint: .green))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    phase = .compose
-                } label: {
-                    Label("Options", systemImage: "slider.horizontal.3")
-                }
-                .buttonStyle(.bordered)
-            }
-            let rows = urls.count <= 2 ? [Array(urls)] : [Array(urls.prefix(2)), Array(urls.dropFirst(2))]
-            VStack(spacing: 14) {
-                ForEach(rows.indices, id: \.self) { r in
-                    HStack(spacing: 16) {
-                        ForEach(rows[r], id: \.self) { url in
-                            GenerateResultTile(url: url, compact: urls.count > 1) { useAsReference(url) }
-                        }
-                        if urls.count > 2 && rows[r].count == 1 { Color.clear }
+    /// Rows of at most two: 1 → [1], 2 → [2], 3 → [2, 1], 4 → [2, 2].
+    private func rows<T>(_ items: [T]) -> [[T]] {
+        items.count <= 2 ? [items] : [Array(items.prefix(2)), Array(items.dropFirst(2))]
+    }
+
+    private func placeholders(_ start: Date) -> some View {
+        let shown = provider.map { GenerateSpec.aspects($0.kind).contains(aspect) ? aspect : GenerateSpec.auto } ?? GenerateSpec.auto
+        let slots = rows(Array(0..<max(1, count)))
+        return VStack(spacing: 14) {
+            ForEach(slots.indices, id: \.self) { r in
+                HStack(spacing: 14) {
+                    ForEach(slots[r], id: \.self) { i in
+                        GenerateCanvasPlaceholder(aspect: shown)
+                            .frame(maxWidth: 300, maxHeight: 300)
+                            .generatePop(0.05 + Double(i) * 0.08)
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func results(_ urls: [URL]) -> some View {
+        let grid = rows(urls)
+        return VStack(spacing: 14) {
+            ForEach(grid.indices, id: \.self) { r in
+                HStack(spacing: 18) {
+                    ForEach(grid[r], id: \.self) { url in
+                        GenerateResultTile(url: url, compact: urls.count > 1) { useAsReference(url) }
+                    }
+                    if urls.count > 2 && grid[r].count == 1 { Color.clear }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: Footer
 
     private var footer: some View {
         HStack(spacing: 12) {
-            if let error {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text(error.message).lineLimit(1).truncationMode(.tail).help(error.message)
-                if !error.details.isEmpty {
-                    Button("Details") { showDetails.toggle() }
-                        .buttonStyle(.link)
-                        .popover(isPresented: $showDetails, arrowEdge: .top) {
-                            ScrollView {
-                                Text(error.details)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(14)
-                            }
-                            .frame(width: 460, height: 220)
-                        }
+            switch phase {
+            case .compose:
+                if let provider, GenerateSpec.hasMore(provider.kind), !ready.isEmpty {
+                    Button { showMore.toggle() } label: {
+                        Label("More", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                    .popover(isPresented: $showMore, arrowEdge: .top) { moreOptions(provider) }
+                    .help("More options")
+                    let extras = moreSummary(provider)
+                    if !extras.isEmpty {
+                        Text(extras).foregroundStyle(.tertiary).lineLimit(1)
+                    }
                 }
-            } else if running {
+            case .running:
                 Text("Keeps running if you close this.").foregroundStyle(.tertiary)
-            } else if let provider, provider.kind != .grokBuild, case .compose = phase {
-                Text(summary(provider)).foregroundStyle(.tertiary).monospacedDigit()
+            case .done:
+                Button { phase = .compose } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .buttonStyle(.bordered)
+                .help("Change the prompt or options")
             }
             Spacer(minLength: 8)
             Button(action: generate) {
@@ -438,19 +581,19 @@ struct GenerateView: View {
             .disabled(!canGenerate)
         }
         .font(.callout)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(Theme.background)
-        .overlay(alignment: .top) { Divider().opacity(0.5) }
+        .padding(.horizontal, 26)
+        .frame(height: 62)
+        .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1) }
     }
 
-    private func summary(_ p: ProviderInfo) -> String {
-        var parts = [GenerateSpec.aspects(p.kind).contains(aspect) ? aspect : GenerateSpec.auto]
-        let sizes = GenerateSpec.sizes(p.kind)
-        if !sizes.isEmpty { parts.append(sizes.contains(size) ? size : sizes[min(1, sizes.count - 1)]) }
+    /// What "More" changed from the provider's plain defaults, e.g. "High · Transparent · WebP".
+    private func moreSummary(_ p: ProviderInfo) -> String {
+        var parts: [String] = []
         if GenerateSpec.qualities(p.kind).contains(quality) { parts.append(quality.capitalized) }
         if background == "transparent", GenerateSpec.backgrounds(p.kind).contains(background) { parts.append("Transparent") }
-        parts.append(count == 1 ? "1 image" : "\(count) images")
+        if format != "png", GenerateSpec.formats(p.kind).contains(format) { parts.append(GenerateSpec.formatLabel(format)) }
+        let m = model.trimmingCharacters(in: .whitespaces)
+        if GenerateSpec.hasModel(p.kind), !m.isEmpty { parts.append(m) }
         return parts.joined(separator: " · ")
     }
 
@@ -550,3 +693,4 @@ struct GenerateDebugPresenter: View {
         #endif
     }
 }
+

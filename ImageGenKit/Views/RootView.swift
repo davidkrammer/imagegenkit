@@ -90,43 +90,14 @@ struct RootView: View {
             .inspectorColumnWidth(min: 300, ideal: 380, max: 560)
         }
         .toolbar {
-            if item == .gallery {
-                ToolbarItem {
-                    Button { store.hideDeleted.toggle() } label: {
-                        Label(store.hideDeleted ? "Show Deleted" : "Hide Deleted",
-                              systemImage: store.hideDeleted ? "eye.slash" : "eye")
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                    .help(store.hideDeleted ? "Show deleted images" : "Hide deleted images")
-                }
-            }
             if !(item == .overview && store.entries.isEmpty) {
-                ToolbarItem {
-                    Menu {
-                        Picker("Provider", selection: $store.providerFilter) {
-                            Text("All Providers").tag(String?.none)
-                            Divider()
-                            ForEach(store.loggedProviders, id: \.self) { Text(ProviderStyle.label($0)).tag(String?.some($0)) }
-                        }
-                        .pickerStyle(.inline)
-                    } label: {
-                        Label(store.providerFilter.map(ProviderStyle.label) ?? "All Providers",
-                              systemImage: "line.3.horizontal.decrease")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .help("Provider")
-                }
-                ToolbarItem {
-                    Picker("Range", selection: $store.range) {
-                        ForEach(TimeRange.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .help("Time range")
-                }
+                ToolbarItem { ShellFilterMenu(showDeletedToggle: item == .gallery) }
+                ToolbarItem { ShellRangePicker() }
             }
             ToolbarItem {
                 Button { showInspector.toggle() } label: { Label("Details", systemImage: "sidebar.trailing") }
-                    .help("Details")
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                    .help("Details (⌥⌘I)")
             }
         }
     }

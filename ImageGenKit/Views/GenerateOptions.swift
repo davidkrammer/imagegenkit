@@ -96,6 +96,7 @@ enum GenerateSpec {
 
     static func modelSuggestions(_ p: ProviderInfo, catalog: Catalog, config: ConfigStore) -> [String] {
         var list = catalog.entry(p.catalogID ?? p.id)?.models ?? []
+        for m in LiveModels.shared.models[p.id] ?? [] where !list.contains(m) { list.append(m) }
         for m in [defaultModel(p, config: config, editing: false), defaultModel(p, config: config, editing: true)]
         where !m.isEmpty && !list.contains(m) {
             list.insert(m, at: 0)

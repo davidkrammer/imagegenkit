@@ -3,8 +3,8 @@ import Observation
 
 /// A provider ImageGenKit knows how to set up, with a step-by-step guide. Loaded from catalog/providers.json:
 /// the copy bundled with the app, refreshed from GitHub so new providers and prices arrive without an app update.
-struct CatalogProvider: Identifiable, Hashable {
-    struct Step: Hashable {
+nonisolated struct CatalogProvider: Identifiable, Hashable, Sendable {
+    struct Step: Hashable, Sendable {
         let text: String
         let button: String?
         let url: URL?
@@ -29,6 +29,8 @@ struct CatalogProvider: Identifiable, Hashable {
     let model: String?
     let editModel: String?
     let sizeStyle: String?
+    /// Optional prices per model (override the provider's prices), e.g. a new model with a different rate.
+    let modelPrices: [String: [String: Double]]
 
     var needsKey: Bool { auth == "key" }
     var isBuiltin: Bool { ["openai", "grok", "codex", "xai", "gemini"].contains(id) }
@@ -54,6 +56,9 @@ struct CatalogProvider: Identifiable, Hashable {
         model = d["model"] as? String
         editModel = d["edit_model"] as? String
         sizeStyle = d["size_style"] as? String
+        modelPrices = (d["model_prices"] as? [String: Any] ?? [:]).compactMapValues { v in
+            (v as? [String: Any])?.compactMapValues { ($0 as? NSNumber)?.doubleValue }
+        }
     }
 }
 
@@ -66,11 +71,15 @@ final class Catalog {
     private let cache = Paths.config.appending(path: "catalog.json")
 
     init() {
+        if let best = Self.newestLocal() { apply(best) }
+    }
+
+    /// The newer of the downloaded catalog and the copy bundled with the app.
+    nonisolated static func newestLocal() -> (providers: [CatalogProvider], updated: String)? {
         let bundled = Bundle.main.url(forResource: "providers", withExtension: "json").flatMap { try? Data(contentsOf: $0) }
-        let cached = try? Data(contentsOf: cache)
-        // Use the newer of the cached download and the bundled copy.
-        let candidates = [cached, bundled].compactMap { $0 }.compactMap(Self.parse)
-        if let best = candidates.max(by: { $0.updated < $1.updated }) { apply(best) }
+        let cached = try? Data(contentsOf: Paths.config.appending(path: "catalog.json"))
+        let candidates = [cached, bundled].compactMap { $0 }.compactMap(parse)
+        return candidates.max(by: { $0.updated < $1.updated })
     }
 
     func entry(_ id: String) -> CatalogProvider? { providers.first { $0.id == id } }
@@ -91,7 +100,7 @@ final class Catalog {
         updated = parsed.updated
     }
 
-    private static func parse(_ data: Data) -> (providers: [CatalogProvider], updated: String)? {
+    nonisolated static func parse(_ data: Data) -> (providers: [CatalogProvider], updated: String)? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let list = obj["providers"] as? [[String: Any]] else { return nil }
         let providers = list.compactMap(CatalogProvider.init)

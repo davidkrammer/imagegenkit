@@ -3,6 +3,7 @@ import SwiftUI
 /// Settings › Images: one collapsible row per provider with only the options it supports.
 /// Values live in config.json under provider_defaults.<id>.<key> ("" = the provider's own default).
 struct SettingsProviderImageRow: View {
+    @Environment(Installer.self) private var installer
     let provider: ProviderInfo
     @Environment(ConfigStore.self) private var config
     @Environment(Catalog.self) private var catalog
@@ -124,8 +125,14 @@ struct SettingsProviderImageRow: View {
     }
 
     private func modelField(_ key: String, editing: Bool) -> some View {
+        modelFieldBody(key, editing: editing)
+            .task(id: provider.id) { await LiveModels.shared.load(provider, installer: installer) }
+    }
+
+    private func modelFieldBody(_ key: String, editing: Bool) -> some View {
         let binding = config.providerDefaultBinding(provider.id, key)
-        let suggestions = catalog.entry(provider.catalogID ?? provider.id)?.models ?? []
+        let suggestions = (catalog.entry(provider.catalogID ?? provider.id)?.models ?? [])
+            + (LiveModels.shared.models[provider.id] ?? []).filter { !(catalog.entry(provider.catalogID ?? provider.id)?.models ?? []).contains($0) }
         let builtin = (editing ? provider.editModel : nil) ?? provider.model ?? ""
         return HStack(spacing: 6) {
             TextField(key, text: binding, prompt: Text(builtin.isEmpty ? "Default" : builtin))

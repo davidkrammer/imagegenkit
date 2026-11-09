@@ -100,6 +100,10 @@ final class ConfigStore {
     @ObservationIgnored private var lastModified: Date?
     /// Default prices from the provider catalog (set by the app at launch).
     var catalogPrices: [String: [String: Double]] = [:]
+    /// From the catalog (refreshed from GitHub): default models per provider and prices per model.
+    @ObservationIgnored private(set) var catalogDefaults: [String: [String: String]] = [:]
+    @ObservationIgnored private(set) var catalogModelPrices: [String: [String: [String: Double]]] = [:]
+    @ObservationIgnored private var catalogStamp: String?
 
     static let defaults: [String: Any] = [
         "openai_model": "gpt-image-2.5-flare",
@@ -144,6 +148,24 @@ final class ConfigStore {
         }
         ProviderStyle.customLabels = Dictionary(uniqueKeysWithValues: customProviders.map { ($0.id, $0.label) })
         ProviderStyle.customOrder = customProviders.map(\.id)
+        reloadCatalogInfo()
+    }
+
+    /// Picks up default models and per-model prices from the newest local catalog.
+    func reloadCatalogInfo() {
+        guard let local = Catalog.newestLocal(), local.updated != catalogStamp else { return }
+        catalogStamp = local.updated
+        var defaults: [String: [String: String]] = [:], modelPrices: [String: [String: [String: Double]]] = [:]
+        for p in local.providers {
+            var d: [String: String] = [:]
+            if let m = p.model { d["model"] = m }
+            if let m = p.editModel { d["edit_model"] = m }
+            if !d.isEmpty { defaults[p.id] = d }
+            if !p.modelPrices.isEmpty { modelPrices[p.id] = p.modelPrices }
+            if !p.prices.isEmpty { catalogPrices[p.id] = p.prices }
+        }
+        catalogDefaults = defaults
+        catalogModelPrices = modelPrices
     }
 
     private func save() {
@@ -294,7 +316,15 @@ final class ConfigStore {
     func providerDefault(_ provider: String, _ key: String) -> String {
         let d = (user["provider_defaults"] as? [String: Any])?[provider] as? [String: Any]
         if let v = d?[key] as? String, !v.isEmpty { return v }
-        if let legacy = Self.legacyKey(provider, key) { return string(legacy) }
+        if let legacy = Self.legacyKey(provider, key), user[legacy] != nil { return string(legacy) }
+        return builtInDefault(provider, key)
+    }
+
+    /// What applies when the user hasn't chosen: the catalog's default model, else the app's built-in default.
+    /// (Same order as the CLI, so a new default model in the catalog reaches everyone without an update.)
+    func builtInDefault(_ provider: String, _ key: String) -> String {
+        if let v = catalogDefaults[provider]?[key], !v.isEmpty { return v }
+        if let legacy = Self.legacyKey(provider, key) { return Self.defaults[legacy] as? String ?? "" }
         return ""
     }
 
@@ -303,7 +333,7 @@ final class ConfigStore {
         var d = all[provider] as? [String: Any] ?? [:]
         let before = d[key] as? String
         // Only store real choices: a value equal to the built-in default stays unset, so viewing never writes.
-        let fallback = Self.legacyKey(provider, key).map { string($0) } ?? ""
+        let fallback = builtInDefault(provider, key)
         if value.isEmpty || value == fallback { d.removeValue(forKey: key) } else { d[key] = value }
         guard (d[key] as? String) != before else { return }
         if d.isEmpty { all.removeValue(forKey: provider) } else { all[provider] = d }
@@ -337,6 +367,14 @@ final class ConfigStore {
 
     // MARK: Prices
 
+    /// A price for one model: your price, then the catalog's per-model price, then the provider price.
+    func price(_ provider: String, model: String?, _ key: String) -> Double? {
+        let mine = ((user["prices"] as? [String: Any])?[provider] as? [String: Any])?[key] as? NSNumber
+        if let mine { return mine.doubleValue }
+        if let model, let v = catalogModelPrices[provider]?[model]?[key] { return v }
+        return price(provider, key)
+    }
+
     func price(_ provider: String, _ key: String) -> Double? {
         let p = (user["prices"] as? [String: Any])?[provider] as? [String: Any]
         return (p?[key] as? NSNumber)?.doubleValue ?? catalogPrices[provider]?[key] ?? Self.defaultPrices[provider]?[key]
@@ -364,14 +402,15 @@ final class ConfigStore {
     func cost(_ e: LogEntry) -> Double? {
         if e.isSubscription { return nil }
         if let reported = e.reportedCostUSD { return reported }
-        if let u = e.openAIUsage, let out = price(e.provider, "image_out") ?? (e.type == "openai" ? price("openai", "image_out") : nil) {
-            let pid = price(e.provider, "image_out") != nil ? e.provider : "openai"
-            let textIn = price(pid, "text_in") ?? 0, imageIn = price(pid, "image_in") ?? 0
+        if let u = e.openAIUsage, price(e.provider, model: e.model, "image_out") ?? (e.type == "openai" ? price("openai", model: e.model, "image_out") : nil) != nil {
+            let pid = price(e.provider, model: e.model, "image_out") != nil ? e.provider : "openai"
+            let out = price(pid, model: e.model, "image_out") ?? 0
+            let textIn = price(pid, model: e.model, "text_in") ?? 0, imageIn = price(pid, model: e.model, "image_in") ?? 0
             let text = u.inputTextTokens ?? 0
             let image = u.inputImageTokens ?? (u.inputTextTokens == nil ? u.inputTokens : max(0, u.inputTokens - text))
             return (Double(text) * textIn + Double(image) * imageIn + Double(u.outputTokens) * out) / 1_000_000
         }
-        if let perImage = price(e.provider, "per_image") { return perImage * Double(e.imageCount) }
+        if let perImage = price(e.provider, model: e.model, "per_image") { return perImage * Double(e.imageCount) }
         return 0
     }
 }

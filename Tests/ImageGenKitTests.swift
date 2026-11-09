@@ -153,3 +153,18 @@ struct LimitsTests {
         #expect(ConfigStore(url: url).user["limits"] == nil)
     }
 }
+
+@MainActor
+struct ModelDefaultTests {
+    @Test func catalogDefaultUnlessUserChose() {
+        let url = FileManager.default.temporaryDirectory.appending(path: "igk-model-\(UUID().uuidString)/config.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let c = ConfigStore(url: url)
+        #expect(c.providerDefault("openai", "model") == "gpt-image-2.5-flare")     // from the bundled catalog
+        #expect(c.providerDefault("openai", "edit_model") == "gpt-image-2.5-sunburst")
+        c.setProviderDefault("openai", "model", "gpt-image-2.5-flare")             // same as default: not stored
+        #expect(c.user["provider_defaults"] == nil)
+        c.setProviderDefault("openai", "model", "gpt-image-2.6-flare")
+        #expect(ConfigStore(url: url).providerDefault("openai", "model") == "gpt-image-2.6-flare")
+    }
+}

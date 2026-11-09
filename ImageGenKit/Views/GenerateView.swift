@@ -460,6 +460,11 @@ struct GenerateView: View {
     }
 
     private func modelField(_ p: ProviderInfo) -> some View {
+        modelFieldBody(p)
+            .task(id: p.id) { await LiveModels.shared.load(p, installer: installer) }
+    }
+
+    private func modelFieldBody(_ p: ProviderInfo) -> some View {
         let suggestions = GenerateSpec.modelSuggestions(p, catalog: catalog, config: config)
         let placeholder = GenerateSpec.defaultModel(p, config: config, editing: !refs.isEmpty)
         return HStack(spacing: 6) {

@@ -145,3 +145,20 @@ final class ProviderStatus {
         states[p.id] = status == "ok" ? .ready : status == "missing" ? .missing(message) : .error(message)
     }
 }
+
+/// Image models a provider's key can use right now (`imagegenkit models <id>`), merged into model menus,
+/// so a new model shows up the day the provider releases it.
+@Observable
+final class LiveModels {
+    static let shared = LiveModels()
+    private(set) var models: [String: [String]] = [:]
+    @ObservationIgnored private var asked: Set<String> = []
+
+    func load(_ p: ProviderInfo, installer: Installer) async {
+        guard [.openai, .xai, .compatible].contains(p.kind), !asked.contains(p.id) else { return }
+        asked.insert(p.id)
+        let r = await installer.runCLI(["models", p.id])
+        guard r.status == 0 else { asked.remove(p.id); return }
+        models[p.id] = r.stdout.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    }
+}

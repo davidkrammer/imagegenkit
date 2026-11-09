@@ -32,9 +32,10 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 HOMEPAGE = "https://github.com/strics-at/imagegenkit"
 GITHUB_REPO = "strics-at/imagegenkit"
+CATALOG_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/catalog/providers.json"
 
 CONFIG_DIR = Path.home() / ".config" / "imagegenkit"
 LEGACY_DIR = Path.home() / ".config" / "imagegen"  # used by the old `imagegen` CLI
@@ -163,7 +164,9 @@ def write_user_config(data):
 
 def load_config():
     cfg = json.loads(json.dumps(DEFAULTS))
-    for k, v in read_user_config().items():
+    user = read_user_config()
+    cfg["_user_keys"] = sorted(user)
+    for k, v in user.items():
         if k == "tasks" and isinstance(v, dict):
             for task, preset in v.items():
                 if isinstance(preset, dict):
@@ -183,11 +186,51 @@ def enable_provider(name):
         write_user_config(data)
 
 
+def catalog_entry(name):
+    """The provider's entry in the cached catalog (~/.config/imagegenkit/catalog.json), refreshed from GitHub."""
+    try:
+        for e in json.loads((CONFIG_DIR / "catalog.json").read_text()).get("providers", []):
+            if e.get("id") == name:
+                return e
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def refresh_catalog():
+    """Download the latest provider catalog (default models, prices, guides). Keeps the newer copy."""
+    req = urllib.request.Request(CATALOG_URL, headers={"User-Agent": "imagegenkit"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        data = r.read()
+    new = json.loads(data)
+    if not new.get("providers"):
+        return False
+    path = CONFIG_DIR / "catalog.json"
+    try:
+        old = json.loads(path.read_text())
+        if str(old.get("updated", "")) > str(new.get("updated", "")):
+            return False
+    except (OSError, ValueError):
+        pass
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    return True
+
+
 def pref(cfg, spec, key, legacy=None):
-    """Per-provider default from config (provider_defaults.<name>.<key>), then the old global key."""
+    """A provider setting: your choice (provider_defaults.<name>.<key>, or an old global key you set),
+    then the catalog's default (so new default models arrive without an update), then the built-in default."""
     d = (cfg.get("provider_defaults") or {}).get(spec["name"]) or {}
     if d.get(key) not in (None, ""):
         return d[key]
+    if legacy and legacy in (cfg.get("_user_keys") or []):
+        return cfg.get(legacy)
+    if key in ("model", "edit_model"):
+        e = catalog_entry(spec.get("catalog") or spec["name"])
+        if e.get(key):
+            return e[key]
     return cfg.get(legacy) if legacy else None
 
 
@@ -582,15 +625,13 @@ def collect_images(resp, skip=()):
 
 # ---------- usage & limits ----------
 
-def prices_for(cfg, provider):
+def prices_for(cfg, provider, model=None):
+    """USD prices: built-in, then the catalog (per provider, then per model), then your own in config."""
     p = dict(DEFAULT_PRICES.get(provider, {}))
-    cache = CONFIG_DIR / "catalog.json"
-    try:
-        for entry in json.loads(cache.read_text()).get("providers", []):
-            if entry.get("id") == provider and entry.get("prices"):
-                p.update(entry["prices"])
-    except (OSError, ValueError):
-        pass
+    entry = catalog_entry(provider)
+    p.update(entry.get("prices") or {})
+    if model:
+        p.update((entry.get("model_prices") or {}).get(model) or {})
     p.update((cfg.get("prices") or {}).get(provider) or {})
     return p
 
@@ -605,9 +646,9 @@ def estimate_cost(entry, cfg):
     if isinstance(u.get("cost_in_usd_ticks"), (int, float)):
         return u["cost_in_usd_ticks"] / 1e10
     provider = entry.get("provider", "")
-    p = prices_for(cfg, provider)
+    p = prices_for(cfg, provider, entry.get("model"))
     if ("input_tokens" in u or "output_tokens" in u) and not p.get("image_out") and entry.get("type") == "openai":
-        p = prices_for(cfg, "openai")
+        p = prices_for(cfg, "openai", entry.get("model"))
     if ("input_tokens" in u or "output_tokens" in u) and p.get("image_out"):
         d = u.get("input_tokens_details") or {}
         text = d.get("text_tokens") or 0
@@ -1352,6 +1393,10 @@ def auto_update(cfg):
             return
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         stamp.touch()
+        try:
+            refresh_catalog()
+        except Exception:
+            pass
         msg = self_update()
         if msg.startswith("updated"):
             log(f"imagegenkit: {msg}")
@@ -1360,6 +1405,11 @@ def auto_update(cfg):
 
 
 def cmd_update(a, cfg):
+    try:
+        if refresh_catalog():
+            print("Provider list updated.")
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
     try:
         print(self_update())
     except urllib.error.HTTPError as e:
@@ -1397,7 +1447,7 @@ def cmd_config(a, cfg):
     elif a.action == "reset":
         if CONFIG_FILE.exists():
             CONFIG_FILE.unlink()
-    print(json.dumps(load_config(), indent=2, ensure_ascii=False))
+    print(json.dumps({k: v for k, v in load_config().items() if not k.startswith("_")}, indent=2, ensure_ascii=False))
 
 
 # ---------- CLI ----------

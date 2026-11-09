@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-09T02:00",
+  "updated": "2026-11-09T04:00",
   "providers": [
     {
       "id": "openai",
@@ -40,7 +40,9 @@
         "gpt-image-2.6-sunburst"
       ],
       "transparent": true,
-      "tested": true
+      "tested": true,
+      "model": "gpt-image-2.5-flare",
+      "edit_model": "gpt-image-2.5-sunburst"
     },
     {
       "id": "grok",
@@ -120,7 +122,8 @@
         "grok-imagine-image-2.0"
       ],
       "transparent": false,
-      "tested": false
+      "tested": false,
+      "model": "grok-imagine-image"
     },
     {
       "id": "gemini",
@@ -156,7 +159,8 @@
         "gemini-3.1-flash-lite-image"
       ],
       "transparent": false,
-      "tested": false
+      "tested": false,
+      "model": "gemini-nano-banana-2.1"
     },
     {
       "id": "openrouter",

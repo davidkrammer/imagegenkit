@@ -102,6 +102,12 @@ Saved paths go to stdout. Every run is logged to `~/.config/imagegenkit/log.json
 
 "Untested" means we haven't made real images with it yet. The provider list lives in [`catalog/providers.json`](catalog/providers.json). Pull requests that add, fix or test providers are welcome.
 
+## Models
+
+- **Defaults** come from the provider list ([`catalog/providers.json`](catalog/providers.json)). When a provider releases a better model, the default is changed there once, and every app and CLI picks it up within a day, no new version needed. Prices can be set per model too.
+- **New models show up right away** in the model menus (Settings › Images and Generate) as soon as your key can use them; the app asks the provider for its current list.
+- **Your choice always wins**: pick or type any model ID per provider in Settings, set `provider_defaults.<provider>.model` in the config, or pass `-m <model>` on the command line. `imagegenkit models openai` lists what your key can use.
+
 ## Privacy
 
 Everything stays on your Mac. API keys are stored in the macOS Keychain and are only sent to the provider you choose. The app talks to GitHub only to check for updates and to refresh the provider list.

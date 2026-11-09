@@ -35,7 +35,7 @@ struct ParserTests {
         #expect(abs((e.grokUsage?.apiValueUSD ?? 0) - 0.01656956) < 1e-8)
         #expect(e.caller?.label == "Claude · account 3 · T3 Code")
         #expect(e.thumbs == [nil])
-        #expect(e.rerunCommand.hasPrefix("imagegen grok 'it'\\''s a test'"))
+        #expect(e.rerunCommand.hasPrefix("imagegenkit grok 'it'\\''s a test'"))
     }
 
     @Test func ignoresBrokenLines() {

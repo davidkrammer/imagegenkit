@@ -178,6 +178,8 @@ def all_providers(cfg):
             continue
         s = dict(spec)
         s.setdefault("type", "openai-compatible")
+        if s["type"] not in ("openai-compatible", "openrouter", "together", "fal"):
+            s["type"] = "openai-compatible"
         s.setdefault("label", name)
         s.setdefault("env", re.sub(r"[^A-Z0-9]", "_", name.upper()) + "_API_KEY")
         s.update(name=name, builtin=False)
@@ -240,7 +242,7 @@ def readiness(spec):
     k, src = key_for(spec)
     if not k:
         return False, "no API key"
-    if spec["type"] == "openai-compatible" and not spec.get("base_url"):
+    if spec["type"] in ("openai-compatible", "openrouter", "together") and not spec.get("base_url"):
         return False, "no base_url"
     return True, f"key from {src}"
 
@@ -569,6 +571,9 @@ def run_openai(a, cfg, spec, task):
         if not aspect and refs:  # keep the input image's shape instead of forcing square
             aspect = image_aspect(refs[0])
         params["size"] = openai_size(aspect, a.resolution or cfg["resolution"]) if aspect or not refs else "auto"
+    elif a.aspect and spec.get("size_style") == "aspect":  # e.g. Recraft takes "16:9"
+        w, h = parse_aspect(a.aspect)
+        params["size"] = f"{w:g}:{h:g}"
     elif a.aspect:
         params["size"] = openai_size(a.aspect, a.resolution or cfg["resolution"])
     quality = a.quality or (cfg["quality"] if official else None)
@@ -747,8 +752,113 @@ def run_grok(a, cfg, spec, task):
            images, usage, t0, {"grok_session": sid})
 
 
+def run_openrouter(a, cfg, spec, task):
+    """OpenRouter Image API: one key for many image models (POST /images, base64 out)."""
+    key = "<dry-run>" if a.dry_run else require_key(spec)
+    prompt = read_prompt(a)
+    refs = check_refs(a.image)
+    note_unsupported(a, spec["label"], ["background", "size", "mask", "compression", "moderation"])
+    model = a.model or spec.get("model")
+    if not model:
+        die(f"no model set for {spec['name']}")
+    params = {}
+    if a.n > 1:
+        params["n"] = a.n
+    if a.aspect:
+        w, h = parse_aspect(a.aspect)
+        params["aspect_ratio"] = f"{w:g}:{h:g}"
+    if a.resolution:
+        params["resolution"] = a.resolution.upper()
+    if a.quality:
+        params["quality"] = a.quality
+    if a.format:
+        params["output_format"] = a.format
+    params.update(parse_extra(a.extra))
+    body = {"model": model, "prompt": prompt, **params}
+    if refs:
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": data_uri(p)}} for p in refs]
+    log(f"{spec['label']} {model} | {'edit with ' + str(len(refs)) + ' ref(s)' if refs else 'generate'} | {params or 'defaults'}")
+    if a.dry_run:
+        return log(json.dumps({**body, **({"input_references": "<data uris>"} if refs else {})}, indent=2))
+    t0 = time.time()
+    resp = http("POST", spec["base_url"].rstrip("/") + "/images",
+                {"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                 "X-Title": "ImageGenKit", "HTTP-Referer": HOMEPAGE}, json.dumps(body).encode())
+    usage = resp.get("usage")
+    if isinstance(usage, dict) and isinstance(usage.get("cost"), (int, float)):
+        usage = dict(usage, cost_usd=usage["cost"])
+    finish(a, cfg, spec, task, model, prompt, params, refs, collect_images(resp), usage, t0)
+
+
+def run_together(a, cfg, spec, task):
+    """Together AI images API (FLUX models): width/height instead of size, base64 out."""
+    key = "<dry-run>" if a.dry_run else require_key(spec)
+    prompt = read_prompt(a)
+    refs = check_refs(a.image)
+    note_unsupported(a, spec["label"], ["quality", "background", "mask", "compression", "moderation"])
+    model = a.model or spec.get("model")
+    params = {}
+    if a.n > 1:
+        params["n"] = a.n
+    size = a.size if a.size and "x" in a.size else (openai_size(a.aspect, a.resolution or "1K") if a.aspect or a.resolution else None)
+    if size:
+        w, h = size.split("x")
+        params.update(width=int(w), height=int(h))
+    if a.format in ("png", "jpeg"):
+        params["output_format"] = a.format
+    params.update(parse_extra(a.extra))
+    body = {"model": model, "prompt": prompt, "response_format": "base64", **params}
+    if refs:
+        body["image_url"] = data_uri(refs[0])
+    log(f"{spec['label']} {model} | {'edit' if refs else 'generate'} | {params or 'defaults'}")
+    if a.dry_run:
+        return log(json.dumps({k: (v if k != "image_url" else "<data uri>") for k, v in body.items()}, indent=2))
+    t0 = time.time()
+    resp = http("POST", spec["base_url"].rstrip("/") + "/images/generations",
+                {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json.dumps(body).encode())
+    finish(a, cfg, spec, task, model, prompt, params, refs, collect_images(resp), resp.get("usage"), t0)
+
+
+def run_fal(a, cfg, spec, task):
+    """fal.ai synchronous endpoint (fal.run/<model>). Generation only."""
+    key = "<dry-run>" if a.dry_run else require_key(spec)
+    prompt = read_prompt(a)
+    if a.image:
+        die(f"{spec['label']}: reference images aren't supported yet; use another provider for edits")
+    note_unsupported(a, spec["label"], ["quality", "background", "mask", "compression", "moderation"])
+    model = a.model or spec.get("model")
+    params = {"num_images": a.n} if a.n > 1 else {}
+    size = a.size if a.size and "x" in a.size else (openai_size(a.aspect, a.resolution or "1K") if a.aspect or a.resolution else None)
+    if size:
+        w, h = size.split("x")
+        params["image_size"] = {"width": int(w), "height": int(h)}
+    if a.format in ("png", "jpeg"):
+        params["output_format"] = a.format
+    params.update(parse_extra(a.extra))
+    body = {"prompt": prompt, "sync_mode": True, **params}
+    base = (spec.get("base_url") or "https://fal.run").rstrip("/")
+    log(f"{spec['label']} {model} | generate | {params or 'defaults'}")
+    if a.dry_run:
+        return log(json.dumps({"url": f"{base}/{model}", **body}, indent=2))
+    t0 = time.time()
+    resp = http("POST", f"{base}/{model}", {"Authorization": f"Key {key}", "Content-Type": "application/json"},
+                json.dumps(body).encode())
+    images = []
+    for item in resp.get("images", []) or []:
+        url = item.get("url", "")
+        if url.startswith("data:"):
+            data = base64.b64decode(url.split(",", 1)[1])
+        elif url:
+            with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
+                data = r.read()
+        else:
+            continue
+        images.append((data, item.get("content_type") or sniff(data)))
+    finish(a, cfg, spec, task, model, prompt, params, [], images, None, t0)
+
+
 RUNNERS = {"openai": run_openai, "openai-compatible": run_openai, "xai": run_xai, "gemini": run_gemini,
-           "grok-build": run_grok}
+           "grok-build": run_grok, "openrouter": run_openrouter, "together": run_together, "fal": run_fal}
 
 
 def run_provider(a, cfg):
@@ -820,8 +930,15 @@ def check_provider(spec, cfg):
         m = re.search(r"logged in with ([^\s.]+(?:\.[a-z]+)?)", out)
         return ("ok", f"logged in with {m.group(1)}") if m else ("error", "not logged in (run: grok login)")
     key, src = key_for(spec)
-    base = spec["base_url"].rstrip("/")
+    base = (spec.get("base_url") or "").rstrip("/")
     try:
+        if spec["type"] == "fal":
+            return "ok", f"key from {src} (checked on first run)"
+        if spec["type"] == "openrouter":
+            resp = http("GET", f"{base}/key", {"Authorization": f"Bearer {key}"}, retries=0)
+            d = resp.get("data", {})
+            left = d.get("limit_remaining")
+            return "ok", f"key from {src}" + (f"; ${left:.2f} left" if isinstance(left, (int, float)) else "")
         if spec["type"] == "gemini":
             resp = http("GET", f"{base}/models?pageSize=200", {"x-goog-api-key": key}, retries=0)
             names = [m.get("name", "") for m in resp.get("models", [])]
@@ -841,7 +958,7 @@ def check_provider(spec, cfg):
     except ApiError as e:
         if e.status in (401, 403):
             return "error", f"key rejected ({e.message[:120]})"
-        if e.status == 404 and spec["type"] == "openai-compatible":
+        if e.status in (404, 405) and spec["type"] not in ("openai", "xai", "gemini"):
             return "ok", f"key from {src} (endpoint has no /models list)"
         return "error", str(e)[:200]
 

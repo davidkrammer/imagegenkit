@@ -11,13 +11,34 @@
       "price_hint": "About $0.02–0.05 per image",
       "key_url": "https://platform.openai.com/api-keys",
       "steps": [
-        {"text": "Sign in to the OpenAI Platform, or create a free account.", "button": "Open OpenAI", "url": "https://platform.openai.com/api-keys"},
-        {"text": "Add a payment method or credits under Billing. Images need a paid account.", "button": "Open Billing", "url": "https://platform.openai.com/settings/organization/billing"},
-        {"text": "Create a new secret key, name it ImageGenKit, and copy it."},
-        {"text": "Paste the key below."}
+        {
+          "text": "Sign in to the OpenAI Platform, or create an account.",
+          "button": "Open OpenAI",
+          "url": "https://platform.openai.com/api-keys"
+        },
+        {
+          "text": "Buy credits under Billing (from $5). Images need credits.",
+          "button": "Open Billing",
+          "url": "https://platform.openai.com/settings/organization/billing"
+        },
+        {
+          "text": "Create a new secret key, name it ImageGenKit, and copy it. It's shown only once."
+        },
+        {
+          "text": "Paste the key below. If images fail, verify your organization in OpenAI settings."
+        }
       ],
-      "prices": {"text_in": 5, "image_in": 8, "image_out": 30},
-      "models": ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2"],
+      "prices": {
+        "text_in": 5,
+        "image_in": 8,
+        "image_out": 30
+      },
+      "models": [
+        "gpt-image-2.5-flare",
+        "gpt-image-2.5-sunburst",
+        "gpt-image-2.6-flare",
+        "gpt-image-2.6-sunburst"
+      ],
       "transparent": true,
       "beta": false
     },
@@ -30,8 +51,14 @@
       "price_hint": "Included in your subscription",
       "key_url": "https://grok.com",
       "steps": [
-        {"text": "Install Grok Build, xAI's free command line app.", "action": "install-grok"},
-        {"text": "Log in with the account that has your Grok subscription.", "action": "login-grok"}
+        {
+          "text": "Install Grok Build, xAI's free command line app.",
+          "action": "install-grok"
+        },
+        {
+          "text": "Log in with the account that has your Grok subscription.",
+          "action": "login-grok"
+        }
       ],
       "prices": {},
       "models": [],
@@ -45,15 +72,30 @@
       "auth": "key",
       "tagline": "Grok Imagine with an API key. Pay per image, no subscription needed.",
       "price_hint": "About $0.02–0.04 per image",
-      "key_url": "https://console.x.ai",
+      "key_url": "https://console.x.ai/team/default/api-keys",
       "steps": [
-        {"text": "Sign in to the xAI Console, or create an account.", "button": "Open xAI Console", "url": "https://console.x.ai"},
-        {"text": "Add credits under Billing."},
-        {"text": "Create an API key and copy it."},
-        {"text": "Paste the key below."}
+        {
+          "text": "Sign in to the xAI Console, or create an account.",
+          "button": "Open xAI Console",
+          "url": "https://console.x.ai/team/default/api-keys"
+        },
+        {
+          "text": "Add credits under Billing."
+        },
+        {
+          "text": "Create an API key and copy it."
+        },
+        {
+          "text": "Paste the key below."
+        }
       ],
-      "prices": {"per_image": 0.02},
-      "models": ["grok-imagine-image", "grok-imagine-image-2.0"],
+      "prices": {
+        "per_image": 0.02
+      },
+      "models": [
+        "grok-imagine-image",
+        "grok-imagine-image-2.0"
+      ],
       "transparent": false,
       "beta": true
     },
@@ -66,13 +108,186 @@
       "price_hint": "About $0.03–0.11 per image",
       "key_url": "https://aistudio.google.com/apikey",
       "steps": [
-        {"text": "Sign in to Google AI Studio with your Google account.", "button": "Open AI Studio", "url": "https://aistudio.google.com/apikey"},
-        {"text": "Create an API key and copy it."},
-        {"text": "Turn on billing for the key's Google Cloud project. Image models need a paid tier."},
-        {"text": "Paste the key below."}
+        {
+          "text": "Sign in to Google AI Studio and accept the terms.",
+          "button": "Open AI Studio",
+          "url": "https://aistudio.google.com/apikey"
+        },
+        {
+          "text": "Create an API key and copy it."
+        },
+        {
+          "text": "Click Set up billing and add a payment method. Image models aren't on the free tier."
+        },
+        {
+          "text": "Paste the key below."
+        }
       ],
-      "prices": {"per_image": 0.0336},
-      "models": ["gemini-nano-banana-2.1", "gemini-3.1-flash-lite-image", "gemini-3-pro-image"],
+      "prices": {
+        "per_image": 0.0336
+      },
+      "models": [
+        "gemini-nano-banana-2.1",
+        "gemini-3.1-flash-image",
+        "gemini-3-pro-image",
+        "gemini-3.1-flash-lite-image"
+      ],
+      "transparent": false,
+      "beta": true
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "adapter": "openrouter",
+      "auth": "key",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "black-forest-labs/flux-3-image-klein",
+      "tagline": "One key for many image models: FLUX, Recraft, GPT Image and more.",
+      "price_hint": "From about $0.01 per image",
+      "key_url": "https://openrouter.ai/settings/keys",
+      "steps": [
+        {
+          "text": "Sign in to OpenRouter, or create an account.",
+          "button": "Open OpenRouter",
+          "url": "https://openrouter.ai/settings/keys"
+        },
+        {
+          "text": "Buy credits. Image models need credits.",
+          "button": "Open Credits",
+          "url": "https://openrouter.ai/settings/credits"
+        },
+        {
+          "text": "Create a key, name it ImageGenKit, and copy it."
+        },
+        {
+          "text": "Paste the key below."
+        }
+      ],
+      "prices": {
+        "per_image": 0.009
+      },
+      "models": [
+        "black-forest-labs/flux-3-image-klein",
+        "black-forest-labs/flux-3-image",
+        "black-forest-labs/flux.2-pro",
+        "recraft/recraft-v4.1"
+      ],
+      "transparent": false,
+      "beta": true
+    },
+    {
+      "id": "recraft",
+      "name": "Recraft",
+      "adapter": "openai-compatible",
+      "auth": "key",
+      "base_url": "https://external.api.recraft.ai/v1",
+      "model": "recraftv4_1",
+      "size_style": "aspect",
+      "tagline": "Design-focused images, illustrations and icons.",
+      "price_hint": "About $0.01–0.04 per image",
+      "key_url": "https://www.recraft.ai/app/api/api-keys",
+      "steps": [
+        {
+          "text": "Sign in to Recraft, or create an account.",
+          "button": "Open Recraft",
+          "url": "https://www.recraft.ai/app/api/api-keys"
+        },
+        {
+          "text": "Buy API units ($1 = 1,000 units).",
+          "button": "Open Billing",
+          "url": "https://www.recraft.ai/app/api/billing"
+        },
+        {
+          "text": "Create a token and copy it."
+        },
+        {
+          "text": "Paste the token below."
+        }
+      ],
+      "prices": {
+        "per_image": 0.035
+      },
+      "models": [
+        "recraftv4_1",
+        "recraftv4_1_flash",
+        "recraftv4_1_pro"
+      ],
+      "transparent": false,
+      "beta": true
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "adapter": "together",
+      "auth": "key",
+      "base_url": "https://api.together.ai/v1",
+      "model": "black-forest-labs/FLUX.2-dev",
+      "tagline": "FLUX image models, fast and affordable.",
+      "price_hint": "About $0.02–0.04 per image",
+      "key_url": "https://api.together.ai/settings/projects/~current/api-keys",
+      "steps": [
+        {
+          "text": "Sign in to Together AI, or create an account.",
+          "button": "Open Together",
+          "url": "https://api.together.ai/settings/projects/~current/api-keys"
+        },
+        {
+          "text": "Buy credits (first purchase $15)."
+        },
+        {
+          "text": "Create a key and copy it. It's shown only once."
+        },
+        {
+          "text": "Paste the key below."
+        }
+      ],
+      "prices": {
+        "per_image": 0.0154
+      },
+      "models": [
+        "black-forest-labs/FLUX.2-dev",
+        "black-forest-labs/FLUX.2-pro",
+        "black-forest-labs/FLUX.2-flex"
+      ],
+      "transparent": false,
+      "beta": true
+    },
+    {
+      "id": "fal",
+      "name": "fal.ai",
+      "adapter": "fal",
+      "auth": "key",
+      "base_url": "https://fal.run",
+      "model": "fal-ai/flux/schnell",
+      "tagline": "Very fast FLUX generation. New images only, no edits.",
+      "price_hint": "From under $0.01 per image",
+      "key_url": "https://fal.ai/dashboard/keys",
+      "steps": [
+        {
+          "text": "Sign in to fal, or create an account.",
+          "button": "Open fal",
+          "url": "https://fal.ai/dashboard/keys"
+        },
+        {
+          "text": "Add credits under Billing.",
+          "button": "Open Billing",
+          "url": "https://fal.ai/dashboard/billing"
+        },
+        {
+          "text": "Create a key with the API preset and copy it."
+        },
+        {
+          "text": "Paste the key below."
+        }
+      ],
+      "prices": {
+        "per_image": 0.003
+      },
+      "models": [
+        "fal-ai/flux/schnell",
+        "fal-ai/flux-2",
+        "fal-ai/flux-2-pro"
+      ],
       "transparent": false,
       "beta": true
     }

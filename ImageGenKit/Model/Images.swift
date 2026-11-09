@@ -5,7 +5,9 @@ import UniformTypeIdentifiers
 
 nonisolated enum Paths {
     static let home = URL(fileURLWithPath: NSHomeDirectory())
-    static let config = home.appending(path: ".config/imagegenkit")
+    /// `-configDir <path>` points the app at another folder (demo data for screenshots).
+    static let config: URL = UserDefaults.standard.string(forKey: "configDir").map { URL(fileURLWithPath: $0) }
+        ?? home.appending(path: ".config/imagegenkit")
     static let legacyConfig = home.appending(path: ".config/imagegen")
     static let log = config.appending(path: "log.jsonl")
     static let thumbs = config.appending(path: "thumbs")

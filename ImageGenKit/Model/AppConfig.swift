@@ -19,7 +19,7 @@ enum ImageTask: String, CaseIterable, Identifiable {
 }
 
 nonisolated enum ProviderKind: String, Sendable {
-    case openai, grokBuild = "grok-build", xai, gemini, compatible = "openai-compatible"
+    case openai, grokBuild = "grok-build", xai, gemini, compatible = "openai-compatible", openrouter, together, fal
 }
 
 /// One provider imagegen can use: built-in or the user's own OpenAI-compatible endpoint.
@@ -174,7 +174,8 @@ final class ConfigStore {
         let dict = user["providers"] as? [String: Any] ?? [:]
         return dict.keys.sorted().compactMap { id in
             guard let s = dict[id] as? [String: Any], ProviderInfo.builtins.allSatisfy({ $0.id != id }) else { return nil }
-            return ProviderInfo(id: id, label: s["label"] as? String ?? id, kind: .compatible,
+            return ProviderInfo(id: id, label: s["label"] as? String ?? id,
+                                kind: ProviderKind(rawValue: s["type"] as? String ?? "") ?? .compatible,
                                 baseURL: s["base_url"] as? String, model: s["model"] as? String,
                                 editModel: s["edit_model"] as? String, keyURL: nil, builtin: false,
                                 catalogID: s["catalog"] as? String)
@@ -218,8 +219,10 @@ final class ConfigStore {
 
     func saveCustomProvider(_ p: ProviderInfo) {
         var dict = user["providers"] as? [String: Any] ?? [:]
-        var spec: [String: Any] = ["type": "openai-compatible", "label": p.label,
-                                   "base_url": (p.baseURL ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))]
+        var existing = (user["providers"] as? [String: Any])?[p.id] as? [String: Any] ?? [:]
+        existing.removeValue(forKey: "edit_model")
+        var spec: [String: Any] = existing.merging(["type": p.kind.rawValue, "label": p.label,
+                                   "base_url": (p.baseURL ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/ "))]) { $1 }
         spec["model"] = p.model
         if let e = p.editModel, !e.isEmpty { spec["edit_model"] = e }
         if let c = p.catalogID { spec["catalog"] = c }
@@ -228,6 +231,24 @@ final class ConfigStore {
         if !order.contains(p.id) || (user["order"] as? [String])?.contains(p.id) != true {
             user["order"] = order.contains(p.id) ? order : order + [p.id]
         }
+        save()
+    }
+
+    /// Adds a catalog provider that isn't built into the CLI (OpenRouter, Recraft, ...) and puts it in the order.
+    /// Built-in ones (openai, grok, xai, gemini) only need to be added to the order.
+    func addCatalogProvider(_ entry: CatalogProvider) {
+        if !entry.isBuiltin {
+            var dict = user["providers"] as? [String: Any] ?? [:]
+            var spec: [String: Any] = ["type": entry.adapter, "label": entry.name, "catalog": entry.id]
+            spec["base_url"] = entry.baseURL
+            spec["model"] = entry.model
+            spec["edit_model"] = entry.editModel
+            spec["size_style"] = entry.sizeStyle
+            dict[entry.id] = spec
+            user["providers"] = dict
+        }
+        let current = user["order"] as? [String] ?? []
+        if !current.contains(entry.id) { user["order"] = current + [entry.id] }
         save()
     }
 

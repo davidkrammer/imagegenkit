@@ -26,6 +26,7 @@ struct CatalogProvider: Identifiable, Hashable {
     let baseURL: String?
     let model: String?
     let editModel: String?
+    let sizeStyle: String?
 
     var needsKey: Bool { auth == "key" }
     var isBuiltin: Bool { ["openai", "grok", "xai", "gemini"].contains(id) }
@@ -50,6 +51,7 @@ struct CatalogProvider: Identifiable, Hashable {
         baseURL = d["base_url"] as? String
         model = d["model"] as? String
         editModel = d["edit_model"] as? String
+        sizeStyle = d["size_style"] as? String
     }
 }
 

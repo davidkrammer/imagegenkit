@@ -35,6 +35,7 @@ nonisolated struct LogParser {
         var reportedCost: Double?
         if let u = obj["usage"] as? [String: Any] {
             if let ticks = Self.int(u["cost_in_usd_ticks"]) { reportedCost = Double(ticks) / 1e10 }
+            if let usd = (u["cost_usd"] as? NSNumber)?.doubleValue { reportedCost = usd }
             if type == "grok-build" {
                 grokUsage = GrokUsage(
                     inputTokens: Self.int(u["inputTokens"]) ?? 0,

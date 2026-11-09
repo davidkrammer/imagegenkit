@@ -54,8 +54,6 @@
 1. Download **ImageGenKit-x.y.z.zip** from the [latest release](https://github.com/davidkrammer/imagegenkit/releases/latest) and move **ImageGenKit** to Applications.
 2. Open it. The welcome tour sets up a provider and your AI agents.
 
-> If macOS says it can't check the app, open **System Settings › Privacy & Security** and click **Open Anyway**.
-
 ### Install with your AI agent
 
 Paste this into Claude Code, Codex or another coding agent:

@@ -1521,6 +1521,16 @@ def set_dotted(data, dotted, value):
 
 
 def cmd_config(a, cfg):
+    if a.action == "get":
+        if not a.key:
+            die("usage: imagegenkit config get <key>   (dotted keys work: tasks.draft.provider)")
+        node = {k: v for k, v in cfg.items() if not k.startswith("_")}
+        for k in a.key.split("."):
+            if not isinstance(node, dict) or k not in node:
+                die(f"{a.key} is not set")
+            node = node[k]
+        print(node if isinstance(node, str) else json.dumps(node, indent=2, ensure_ascii=False))
+        return
     if a.action in ("set", "unset"):
         if not a.key or (a.action == "set" and a.value is None):
             die("usage: imagegenkit config set <key> <value>   (dotted keys work: tasks.draft.provider openai)")
@@ -1619,7 +1629,7 @@ def main():
     p.add_argument("provider", nargs="?")
     p.set_defaults(fn=cmd_models)
     p = sub.add_parser("config", help="show or change settings (~/.config/imagegenkit/config.json)")
-    p.add_argument("action", nargs="?", choices=["show", "set", "unset", "reset"], default="show")
+    p.add_argument("action", nargs="?", choices=["show", "get", "set", "unset", "reset"], default="show")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
     p.set_defaults(fn=cmd_config)

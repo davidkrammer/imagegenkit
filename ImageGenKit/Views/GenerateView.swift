@@ -64,7 +64,10 @@ struct GenerateView: View {
 
     // MARK: Derived
 
-    private var ready: [ProviderInfo] { config.providers.filter { status.state($0.id).isReady } }
+    /// The providers listed in Settings that are set up (a provider removed there isn't offered here).
+    private var ready: [ProviderInfo] {
+        config.enabled(ready: { status.state($0).isReady }).filter { status.state($0.id).isReady }
+    }
     private var provider: ProviderInfo? { ready.first { $0.id == providerID } ?? ready.first }
     /// Whether the first provider check has finished (so "no provider" isn't shown too early).
     private var statusChecked: Bool {

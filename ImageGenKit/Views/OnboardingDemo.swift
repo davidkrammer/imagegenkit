@@ -475,7 +475,7 @@ struct OnboardingCheckRow: View {
                 } else {
                     Text("\(number)")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(state == .current ? .white : .secondary)
+                        .foregroundStyle(state == .current ? AnyShapeStyle(Theme.onAccent) : AnyShapeStyle(.secondary))
                 }
             }
             .frame(width: 22, height: 22)

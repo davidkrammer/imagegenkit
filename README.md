@@ -15,7 +15,7 @@
   <a href="#command-line">Command line</a>
 </p>
 
-![ImageGenKit overview](docs/screenshots/overview.png)
+![ImageGenKit overview](docs/screenshots/overview.jpg)
 
 ## What it does
 
@@ -27,9 +27,11 @@
 - **For AI agents**: installs the `imagegenkit` command and a skill for Claude Code and Codex, so your agent can make images that follow your settings.
 - **Updates itself** from GitHub, and the provider list updates without a new app version.
 
-| Gallery | Settings |
+| Gallery | Generate |
 |---|---|
-| ![Gallery](docs/screenshots/gallery.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Gallery](docs/screenshots/gallery.jpg) | ![Generate](docs/screenshots/generate.jpg) |
+
+![Settings](docs/screenshots/settings.jpg)
 
 ## Install
 

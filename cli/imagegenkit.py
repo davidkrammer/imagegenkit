@@ -5,10 +5,10 @@
   imagegenkit final "PROMPT"         final designs
   imagegenkit edit "PROMPT" -i x.png edit or refine an image
   imagegenkit transparent "PROMPT"   transparent PNG
-  imagegenkit <provider> "PROMPT"    use one provider directly (openai, grok, xai, gemini, or your own)
+  imagegenkit <provider> "PROMPT"    use one provider directly (openai, grok, codex, xai, gemini, ...)
 
-Providers: OpenAI (API key), Grok (grok.com subscription via the Grok Build CLI), xAI API (API key),
-Google Gemini (API key), and any OpenAI-compatible endpoint you add. API keys live in the macOS Keychain
+Providers: Grok and Codex subscriptions (via the Grok Build and Codex CLIs), OpenAI, xAI, Google Gemini,
+OpenRouter, Recraft, Together AI, fal.ai (API keys), and any OpenAI-compatible endpoint you add. API keys live in the macOS Keychain
 ("imagegenkit-<provider>"); env vars like OPENAI_API_KEY override them. Settings: ~/.config/imagegenkit/config.json,
 best edited in the ImageGenKit app. Saved image paths go to stdout (one per line); everything else to stderr.
 Stdlib only, Python 3.9+, macOS.
@@ -34,7 +34,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 HOMEPAGE = "https://github.com/davidkrammer/imagegenkit"
 GITHUB_REPO = "davidkrammer/imagegenkit"
 # The env overrides are for testing against a local server.

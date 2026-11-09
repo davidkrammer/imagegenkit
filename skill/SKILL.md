@@ -3,7 +3,7 @@ name: imagegenkit
 description: Generate or edit images with the local `imagegenkit` command (ImageGenKit). Use it whenever the user asks to create, generate, render, mock up or edit an image, or a task needs a raster image asset (photos, product shots, thumbnails, mockups, icons, illustrations, backgrounds, app/store assets, transparent PNGs, restyles, combining reference images).
 metadata:
   managed-by: ImageGenKit
-  version: 1.0.0
+  version: 1.0.1
 ---
 
 # Images with `imagegenkit`
@@ -20,7 +20,7 @@ imagegenkit transparent "PROMPT" -o out.png    # transparent PNG: logo, sticker,
 ```
 
 Common options: `--aspect 16:9`, `-n 2`, `-i ref.png`, `-f prompt.txt`, `--dry-run`. Run `imagegenkit <task> -h` for more.
-Only if the user asks for a specific provider: `imagegenkit openai|grok|xai|gemini|<custom> "PROMPT"` or `imagegenkit draft -p openai ...`.
+Only if the user asks for a specific provider: `imagegenkit openai|grok|codex|xai|gemini|<other> "PROMPT"` or `imagegenkit draft -p openai ...`.
 
 ## Rules
 

@@ -32,7 +32,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 HOMEPAGE = "https://github.com/strics-at/imagegenkit"
 
 CONFIG_DIR = Path.home() / ".config" / "imagegenkit"

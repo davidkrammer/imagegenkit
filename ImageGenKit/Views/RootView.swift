@@ -130,7 +130,7 @@ struct RootView: View {
         }
     }
 
-    /// `-startSection gallery -startRange all -selectLatest YES -settingsTab Install` (screenshots and docs).
+    /// `-startSection gallery -startRange all -selectLatest YES -overviewEmpty YES` (screenshots and docs).
     private func applyLaunchOptions() {
         let defaults = UserDefaults.standard
         applyLaunchSection()

@@ -228,8 +228,8 @@ final class ConfigStore {
         if let c = p.catalogID { spec["catalog"] = c }
         dict[p.id] = spec
         user["providers"] = dict
-        if !order.contains(p.id) || (user["order"] as? [String])?.contains(p.id) != true {
-            user["order"] = order.contains(p.id) ? order : order + [p.id]
+        if let explicit = user["order"] as? [String], !explicit.contains(p.id) {
+            user["order"] = explicit + [p.id]  // callers that manage the list set it themselves
         }
         save()
     }

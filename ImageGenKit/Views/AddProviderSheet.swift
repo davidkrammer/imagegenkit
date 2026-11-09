@@ -69,7 +69,8 @@ struct AddProviderSheet: View {
     /// The provider a catalog entry becomes once added.
     static func info(for e: CatalogProvider, config: ConfigStore) -> ProviderInfo {
         if let p = config.provider(e.id) { return p }
-        return ProviderInfo(id: e.id, label: e.name, kind: .compatible, baseURL: e.baseURL, model: e.model,
+        return ProviderInfo(id: e.id, label: e.name, kind: ProviderKind(rawValue: e.adapter) ?? .compatible,
+                            baseURL: e.baseURL, model: e.model,
                             editModel: e.editModel, keyURL: e.keyURL, builtin: false, catalogID: e.id)
     }
 }
@@ -355,7 +356,10 @@ struct AddProviderSetup: View {
                 return
             }
             key = ""
-            if info.kind == .compatible && config.provider(info.id) == nil { config.saveCustomProvider(info) }
+            if config.provider(info.id) == nil {
+                // Catalog providers keep their adapter settings (type, base URL, size style ...).
+                if let entry = target.entry, !entry.isBuiltin { config.addCatalogProvider(entry) } else { config.saveCustomProvider(info) }
+            }
             addProviderEnable(info.id, before: before, config: config)
             await status.refresh(config.providers)
             await status.test(info, installer: installer)

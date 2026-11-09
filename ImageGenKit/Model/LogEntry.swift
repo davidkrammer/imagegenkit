@@ -93,7 +93,7 @@ nonisolated struct LogEntry: Identifiable, Sendable, Hashable {
         return model
     }
 
-    var isSubscription: Bool { type == "grok-build" }
+    var isSubscription: Bool { type == "grok-build" || type == "codex-cli" }
 
     /// A shell command that runs the same request again.
     var rerunCommand: String {

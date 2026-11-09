@@ -97,7 +97,7 @@ struct Stats {
             monthMap[monthStart] = m
         }
 
-        let fixed = ["openai", "grok", "gemini", "xai"]
+        let fixed = ["openai", "grok", "codex", "gemini", "xai"]
         providers = providerMap.keys.sorted {
             (fixed.firstIndex(of: $0) ?? 10, $0) < (fixed.firstIndex(of: $1) ?? 10, $1)
         }

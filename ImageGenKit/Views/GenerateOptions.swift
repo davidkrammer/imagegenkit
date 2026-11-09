@@ -10,6 +10,7 @@ enum GenerateSpec {
         case .openai, .compatible, .together, .fal: [auto, "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"]
         case .openrouter: [auto, "1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "21:9"]
         case .grokBuild: [auto, "1:1", "16:9", "9:16", "3:2", "2:3"]
+        case .codex: [auto, "1:1", "3:2", "2:3"]
         case .xai: [auto, "1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "1:2", "2:1"]
         case .gemini: [auto, "1:1", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "16:9", "9:16", "21:9"]
         }
@@ -17,7 +18,7 @@ enum GenerateSpec {
 
     static func sizes(_ kind: ProviderKind) -> [String] {
         switch kind {
-        case .grokBuild: []
+        case .grokBuild, .codex: []
         case .xai: ["1K", "2K"]
         default: ["1K", "2K", "4K"]
         }
@@ -29,7 +30,7 @@ enum GenerateSpec {
     static let formats = ["png", "jpeg", "webp"]
     static let moderations = ["auto", "low"]
 
-    static func hasModel(_ kind: ProviderKind) -> Bool { kind != .grokBuild }
+    static func hasModel(_ kind: ProviderKind) -> Bool { !kind.isSubscription }
     static func hasMore(_ kind: ProviderKind) -> Bool { kind != .grokBuild }
 
     /// Default model shown as the field's placeholder.
@@ -39,7 +40,7 @@ enum GenerateSpec {
         case .xai: config.string("xai_model")
         case .gemini: config.string("gemini_model")
         case .compatible, .openrouter, .together, .fal: (editing ? p.editModel : nil) ?? p.model ?? ""
-        case .grokBuild: ""
+        case .grokBuild, .codex: ""
         }
     }
 

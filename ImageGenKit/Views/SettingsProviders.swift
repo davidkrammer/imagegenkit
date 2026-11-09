@@ -111,7 +111,7 @@ struct SettingsProviderRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(provider.label).font(.body.weight(.medium))
-                    if entry?.beta == true { Pill(text: "Beta", color: .orange) }
+                    if entry?.beta == true { Pill(text: "Untested") }
                 }
                 Text(subtitle(state))
                     .font(.caption)
@@ -138,7 +138,7 @@ struct SettingsProviderRow: View {
     private func subtitle(_ state: ProviderState) -> String {
         if status.testing.contains(provider.id) { return "Testing…" }
         switch state {
-        case .ready: return provider.kind == .grokBuild ? "Logged in" : "Connected"
+        case .ready: return provider.kind.isSubscription ? "Logged in" : "Connected"
         case .missing(let why), .error(let why): return why
         case .unknown: return "Checking…"
         }

@@ -22,7 +22,7 @@
 - **Generate** images by hand with any provider and every option it supports.
 - **Gallery and history** of everything you or your agents generated, with prompts, sizes and files.
 - **Usage and costs** per day, month, provider and project.
-- **Providers**: add OpenAI, Google Gemini, xAI, OpenRouter, Recraft, Together AI or fal.ai with a step-by-step key guide, or log in to your Grok subscription. Keys stay in your macOS Keychain.
+- **Providers**: add OpenAI, Google Gemini, xAI, OpenRouter, Recraft, Together AI or fal.ai with a step-by-step key guide, or log in with your Grok or ChatGPT (Codex) subscription. Keys stay in your macOS Keychain.
 - **Use for**: pick which provider makes drafts, finals, edits and transparent PNGs. If one isn't set up, the next one in your list is used.
 - **For AI agents**: installs the `imagegenkit` command and a skill for Claude Code and Codex, so your agent can make images that follow your settings.
 - **Updates itself** from GitHub, and the provider list updates without a new app version.
@@ -79,12 +79,13 @@ Saved paths go to stdout. Every run is logged to `~/.config/imagegenkit/log.json
 |---|---|---|
 | OpenAI (GPT Image) | API key | Tested |
 | Grok subscription | grok.com login via [Grok Build](https://x.ai/cli) | Tested |
-| xAI API | API key | Beta |
-| Google Gemini (Nano Banana) | API key | Beta |
-| OpenRouter | API key | Beta |
-| Recraft | API key | Beta |
-| Together AI | API key | Beta |
-| fal.ai | API key | Beta |
+| Codex subscription | ChatGPT plan login via the Codex CLI | Untested |
+| xAI API | API key | Untested |
+| Google Gemini (Nano Banana) | API key | Untested |
+| OpenRouter | API key | Untested |
+| Recraft | API key | Untested |
+| Together AI | API key | Untested |
+| fal.ai | API key | Untested |
 | Any OpenAI-compatible API | API key | Custom |
 
 The provider list lives in [`catalog/providers.json`](catalog/providers.json). Pull requests that add or fix providers are welcome.

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-09",
+  "updated": "2026-11-09T02:00",
   "providers": [
     {
       "id": "openai",
@@ -40,7 +40,7 @@
         "gpt-image-2.6-sunburst"
       ],
       "transparent": true,
-      "beta": false
+      "tested": true
     },
     {
       "id": "grok",
@@ -63,7 +63,30 @@
       "prices": {},
       "models": [],
       "transparent": false,
-      "beta": false
+      "tested": true
+    },
+    {
+      "id": "codex",
+      "name": "Codex subscription",
+      "adapter": "codex-cli",
+      "auth": "login",
+      "tagline": "Uses your ChatGPT plan through the Codex app. No API key, no per-image cost.",
+      "price_hint": "Included in your ChatGPT plan",
+      "key_url": "https://chatgpt.com/codex",
+      "steps": [
+        {
+          "text": "Install Codex, OpenAI's command line app.",
+          "action": "install-codex"
+        },
+        {
+          "text": "Log in with the ChatGPT account that has your plan.",
+          "action": "login-codex"
+        }
+      ],
+      "prices": {},
+      "models": [],
+      "transparent": false,
+      "tested": false
     },
     {
       "id": "xai",
@@ -97,7 +120,7 @@
         "grok-imagine-image-2.0"
       ],
       "transparent": false,
-      "beta": true
+      "tested": false
     },
     {
       "id": "gemini",
@@ -133,7 +156,7 @@
         "gemini-3.1-flash-lite-image"
       ],
       "transparent": false,
-      "beta": true
+      "tested": false
     },
     {
       "id": "openrouter",
@@ -173,7 +196,7 @@
         "recraft/recraft-v4.1"
       ],
       "transparent": false,
-      "beta": true
+      "tested": false
     },
     {
       "id": "recraft",
@@ -213,7 +236,7 @@
         "recraftv4_1_pro"
       ],
       "transparent": false,
-      "beta": true
+      "tested": false
     },
     {
       "id": "together",
@@ -250,7 +273,7 @@
         "black-forest-labs/FLUX.2-flex"
       ],
       "transparent": false,
-      "beta": true
+      "tested": false
     },
     {
       "id": "fal",
@@ -289,7 +312,7 @@
         "fal-ai/flux-2-pro"
       ],
       "transparent": false,
-      "beta": true
+      "tested": false
     }
   ]
 }

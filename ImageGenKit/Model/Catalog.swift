@@ -22,14 +22,16 @@ struct CatalogProvider: Identifiable, Hashable {
     let prices: [String: Double]
     let models: [String]
     let transparent: Bool
-    let beta: Bool
+    /// Verified with real images. Untested providers show an "Untested" label.
+    let tested: Bool
+    var beta: Bool { !tested }
     let baseURL: String?
     let model: String?
     let editModel: String?
     let sizeStyle: String?
 
     var needsKey: Bool { auth == "key" }
-    var isBuiltin: Bool { ["openai", "grok", "xai", "gemini"].contains(id) }
+    var isBuiltin: Bool { ["openai", "grok", "codex", "xai", "gemini"].contains(id) }
 
     init?(_ d: [String: Any]) {
         guard let id = d["id"] as? String, let name = d["name"] as? String, let adapter = d["adapter"] as? String else { return nil }
@@ -47,7 +49,7 @@ struct CatalogProvider: Identifiable, Hashable {
         prices = (d["prices"] as? [String: Any] ?? [:]).compactMapValues { ($0 as? NSNumber)?.doubleValue }
         models = d["models"] as? [String] ?? []
         transparent = d["transparent"] as? Bool ?? false
-        beta = d["beta"] as? Bool ?? false
+        tested = d["tested"] as? Bool ?? !(d["beta"] as? Bool ?? true)
         baseURL = d["base_url"] as? String
         model = d["model"] as? String
         editModel = d["edit_model"] as? String

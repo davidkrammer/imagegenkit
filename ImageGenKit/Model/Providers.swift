@@ -28,6 +28,30 @@ nonisolated enum Keychain {
     }
 }
 
+/// Setup steps that run in Terminal (catalog step "action" values).
+enum SetupAction {
+    static func command(_ action: String) -> String? {
+        switch action {
+        case "install-grok": "curl -fsSL https://x.ai/cli/install.sh | bash"
+        case "login-grok": "grok login"
+        case "install-codex": "if command -v brew >/dev/null 2>&1; then brew install --cask codex; else npm install -g @openai/codex; fi"
+        case "login-codex": "codex login"
+        default: nil
+        }
+    }
+
+    /// Whether the step is already done on this Mac.
+    @MainActor static func isDone(_ action: String) -> Bool {
+        switch action {
+        case "install-grok": ProviderStatus.grokBinary != nil
+        case "login-grok": FileManager.default.fileExists(atPath: ProviderStatus.grokHome.appending(path: "auth.json").path)
+        case "install-codex": ProviderStatus.codexBinary != nil
+        case "login-codex": FileManager.default.fileExists(atPath: ProviderStatus.codexHome.appending(path: "auth.json").path)
+        default: false
+        }
+    }
+}
+
 /// Opens Terminal and runs a command (for interactive steps like `grok login`).
 enum TerminalRunner {
     static func run(_ command: String) {
@@ -59,6 +83,19 @@ final class ProviderStatus {
     static let grokHome = Paths.home.appending(path: ".grok")
 
     var grokInstalled: Bool { Self.grokBinary != nil }
+    var codexInstalled: Bool { Self.codexBinary != nil }
+
+    static let codexHome = Paths.home.appending(path: ".codex")
+
+    /// The Codex CLI, wherever npm/Homebrew put it (GUI apps don't get the shell's PATH).
+    static var codexBinary: String? {
+        var candidates = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", Paths.home.appending(path: ".local/bin/codex").path]
+        let nvm = Paths.home.appending(path: ".nvm/versions/node")
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvm.path) {
+            candidates += versions.sorted(by: >).map { nvm.appending(path: "\($0)/bin/codex").path }
+        }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
 
     static var grokBinary: String? {
         let candidates = [grokHome.appending(path: "bin/grok").path, "/opt/homebrew/bin/grok", "/usr/local/bin/grok"]
@@ -69,7 +106,15 @@ final class ProviderStatus {
 
     func refresh(_ providers: [ProviderInfo]) async {
         for p in providers {
-            if p.kind == .grokBuild {
+            if p.kind == .codex {
+                if Self.codexBinary == nil {
+                    states[p.id] = .missing("Not installed")
+                } else if FileManager.default.fileExists(atPath: Self.codexHome.appending(path: "auth.json").path) {
+                    states[p.id] = .ready
+                } else {
+                    states[p.id] = .missing("Not logged in")
+                }
+            } else if p.kind == .grokBuild {
                 if Self.grokBinary == nil {
                     states[p.id] = .missing("Not installed")
                 } else if FileManager.default.fileExists(atPath: Self.grokHome.appending(path: "auth.json").path) {

@@ -149,7 +149,7 @@ struct AddProviderCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(title).font(.body.weight(.semibold))
-                        if beta { Pill(text: "Beta", color: .orange) }
+                        if beta { Pill(text: "Untested") }
                     }
                     Text(tagline).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                     if let price, !price.isEmpty {
@@ -250,7 +250,7 @@ struct AddProviderSetup: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(target.entry?.name ?? info.label).font(.title2.weight(.semibold))
-                    if target.entry?.beta == true { Pill(text: "Beta", color: .orange) }
+                    if target.entry?.beta == true { Pill(text: "Untested") }
                 }
                 if let hint = target.entry?.priceHint, !hint.isEmpty {
                     Text(hint).font(.callout).foregroundStyle(.secondary)

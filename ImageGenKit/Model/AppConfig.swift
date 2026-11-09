@@ -19,7 +19,10 @@ enum ImageTask: String, CaseIterable, Identifiable {
 }
 
 nonisolated enum ProviderKind: String, Sendable {
-    case openai, grokBuild = "grok-build", xai, gemini, compatible = "openai-compatible", openrouter, together, fal
+    case openai, grokBuild = "grok-build", codex = "codex-cli", xai, gemini, compatible = "openai-compatible", openrouter, together, fal
+
+    /// Signs in with a subscription login instead of an API key.
+    var isSubscription: Bool { self == .grokBuild || self == .codex }
 }
 
 /// One provider imagegen can use: built-in or the user's own OpenAI-compatible endpoint.
@@ -34,13 +37,14 @@ struct ProviderInfo: Identifiable, Hashable {
     var builtin: Bool
     var catalogID: String?
 
-    var needsKey: Bool { kind != .grokBuild }
+    var needsKey: Bool { !kind.isSubscription }
     var keychainService: String { "imagegenkit-\(id)" }
     var canTransparent: Bool { kind == .openai }
     var color: Color { ProviderStyle.color(id) }
 
     static let builtins: [ProviderInfo] = [
         ProviderInfo(id: "grok", label: "Grok subscription", kind: .grokBuild, keyURL: URL(string: "https://grok.com"), builtin: true),
+        ProviderInfo(id: "codex", label: "Codex subscription", kind: .codex, keyURL: URL(string: "https://chatgpt.com/codex"), builtin: true),
         ProviderInfo(id: "openai", label: "OpenAI", kind: .openai, baseURL: "https://api.openai.com/v1",
                      keyURL: URL(string: "https://platform.openai.com/api-keys"), builtin: true),
         ProviderInfo(id: "xai", label: "xAI API", kind: .xai, baseURL: "https://api.x.ai/v1",
@@ -62,6 +66,7 @@ enum ProviderStyle {
         case "grok": "Grok"
         case "xai": "xAI API"
         case "gemini": "Gemini"
+        case "codex": "Codex"
         default: customLabels[id] ?? id.capitalized
         }
     }
@@ -78,7 +83,8 @@ enum ProviderStyle {
         case "grok": 1
         case "gemini": 2
         case "xai": 3
-        default: customOrder.firstIndex(of: id).map { 4 + $0 % 4 }
+        case "codex": 5
+        default: customOrder.firstIndex(of: id).map { [4, 6, 7][$0 % 3] }
         }
         guard let index else { return .gray }
         return Color(light: slots[index].0, dark: slots[index].1)
@@ -103,7 +109,7 @@ final class ConfigStore {
         "resolution": "2K",
         "quality": "medium",
         "output_dir": "~/Pictures/ImageGenKit",
-        "order": ["grok", "openai", "xai", "gemini"],
+        "order": ["grok", "codex", "openai", "xai", "gemini"],
     ]
     static let defaultTasks: [String: [String: String]] = [
         "draft": ["provider": "grok", "quality": "low", "resolution": "1K"],
@@ -263,6 +269,42 @@ final class ConfigStore {
         save()
     }
 
+    // MARK: Per-provider image defaults (provider_defaults.<id>.<key> in config.json)
+
+    /// Old global keys the CLI still falls back to.
+    private static func legacyKey(_ provider: String, _ key: String) -> String? {
+        switch (provider, key) {
+        case ("openai", "model"): "openai_model"
+        case ("openai", "edit_model"): "openai_edit_model"
+        case ("openai", "quality"): "quality"
+        case ("openai", "resolution"): "resolution"
+        case ("xai", "model"): "xai_model"
+        case ("gemini", "model"): "gemini_model"
+        default: nil
+        }
+    }
+
+    /// The provider's default for a setting ("" = provider's own default).
+    func providerDefault(_ provider: String, _ key: String) -> String {
+        let d = (user["provider_defaults"] as? [String: Any])?[provider] as? [String: Any]
+        if let v = d?[key] as? String, !v.isEmpty { return v }
+        if let legacy = Self.legacyKey(provider, key) { return string(legacy) }
+        return ""
+    }
+
+    func setProviderDefault(_ provider: String, _ key: String, _ value: String) {
+        var all = user["provider_defaults"] as? [String: Any] ?? [:]
+        var d = all[provider] as? [String: Any] ?? [:]
+        if value.isEmpty { d.removeValue(forKey: key) } else { d[key] = value }
+        all[provider] = d
+        user["provider_defaults"] = all
+        save()
+    }
+
+    func providerDefaultBinding(_ provider: String, _ key: String) -> Binding<String> {
+        Binding(get: { self.providerDefault(provider, key) }, set: { self.setProviderDefault(provider, key, $0) })
+    }
+
     // MARK: Tasks
 
     func taskValue(_ task: ImageTask, _ key: String) -> String {
@@ -310,7 +352,7 @@ final class ConfigStore {
 
     /// Estimated cost of one run in USD. nil = covered by a subscription.
     func cost(_ e: LogEntry) -> Double? {
-        if e.provider == "grok" { return nil }
+        if e.isSubscription { return nil }
         if let reported = e.reportedCostUSD { return reported }
         if let u = e.openAIUsage, let out = price(e.provider, "image_out") ?? (e.type == "openai" ? price("openai", "image_out") : nil) {
             let pid = price(e.provider, "image_out") != nil ? e.provider : "openai"

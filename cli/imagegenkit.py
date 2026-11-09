@@ -59,7 +59,7 @@ DEFAULTS = {
     "resolution": "2K",
     "quality": "medium",
     "output_dir": "~/Pictures/ImageGenKit",
-    "order": ["grok", "openai", "xai", "gemini"],  # fallback order when the task's provider isn't set up
+    "order": ["grok", "codex", "openai", "xai", "gemini"],  # fallback order when the task's provider isn't set up
     "tasks": {
         "draft": {"provider": "grok", "quality": "low", "resolution": "1K"},
         "final": {"provider": "openai"},
@@ -67,18 +67,21 @@ DEFAULTS = {
         "transparent": {"provider": "openai"},
     },
     "providers": {},  # your own OpenAI-compatible endpoints: {"name": {"base_url": ..., "model": ...}}
+    "provider_defaults": {},  # per provider: {"openai": {"quality": "medium", "resolution": "2K", "model": ...}}
 }
 
 BUILTIN_PROVIDERS = {
     "openai": {"type": "openai", "label": "OpenAI", "base_url": "https://api.openai.com/v1",
                "env": "OPENAI_API_KEY", "key_url": "https://platform.openai.com/api-keys"},
     "grok": {"type": "grok-build", "label": "Grok subscription", "key_url": "https://grok.com"},
+    "codex": {"type": "codex-cli", "label": "Codex subscription", "key_url": "https://chatgpt.com/codex"},
     "xai": {"type": "xai", "label": "xAI API", "base_url": "https://api.x.ai/v1",
             "env": "XAI_API_KEY", "key_url": "https://console.x.ai"},
     "gemini": {"type": "gemini", "label": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta",
                "env": "GEMINI_API_KEY", "key_url": "https://aistudio.google.com/apikey"},
 }
 CAN_TRANSPARENT = {"openai"}  # provider types that return real alpha
+SUBSCRIPTION_TYPES = {"grok-build", "codex-cli"}  # log in instead of an API key
 RESERVED = set(TASKS) | {"check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
                          "help", "log"}
 
@@ -89,6 +92,8 @@ MIME_BY_EXT = {
 EXT_BY_MIME = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
 GROK_HOME = Path(os.environ.get("GROK_HOME", Path.home() / ".grok"))
 GROK_WORKDIR = CONFIG_DIR / "grok-work"  # keeps these runs out of project session lists
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+CODEX_WORKDIR = CONFIG_DIR / "codex-work"
 GROK_ASPECTS = ["1:1", "16:9", "9:16", "3:2", "2:3"]
 GROK_SYSTEM = ('You are an image generation runner. Do exactly what the user asks with the image tools, passing '
                'the prompt verbatim, then reply "done". Never call other tools. If a tool call is blocked or '
@@ -169,6 +174,14 @@ def enable_provider(name):
         write_user_config(data)
 
 
+def pref(cfg, spec, key, legacy=None):
+    """Per-provider default from config (provider_defaults.<name>.<key>), then the old global key."""
+    d = (cfg.get("provider_defaults") or {}).get(spec["name"]) or {}
+    if d.get(key) not in (None, ""):
+        return d[key]
+    return cfg.get(legacy) if legacy else None
+
+
 def all_providers(cfg):
     out = {}
     for name, spec in BUILTIN_PROVIDERS.items():
@@ -226,6 +239,15 @@ def require_key(spec):
     return k
 
 
+def codex_bin():
+    g = shutil.which("codex")
+    if g:
+        return g
+    candidates = [Path("/opt/homebrew/bin/codex"), Path("/usr/local/bin/codex"), Path.home() / ".local/bin/codex"]
+    candidates += sorted(Path.home().glob(".nvm/versions/node/*/bin/codex"), reverse=True)
+    return next((str(c) for c in candidates if c.exists()), None)
+
+
 def grok_bin():
     g = shutil.which("grok") or str(GROK_HOME / "bin" / "grok")
     return g if Path(g).exists() else None
@@ -238,6 +260,12 @@ def readiness(spec):
             return False, "Grok Build CLI not installed"
         if not (GROK_HOME / "auth.json").exists():
             return False, "not logged in (run: grok login)"
+        return True, "logged in"
+    if spec["type"] == "codex-cli":
+        if not codex_bin():
+            return False, "Codex CLI not installed"
+        if not (CODEX_HOME / "auth.json").exists():
+            return False, "not logged in (run: codex login)"
         return True, "logged in"
     k, src = key_for(spec)
     if not k:
@@ -553,14 +581,17 @@ def run_openai(a, cfg, spec, task):
     mask = check_refs([a.mask])[0] if a.mask else None
     official = spec["type"] == "openai"
     if official:
-        model = a.model or (cfg["openai_edit_model"] if refs else cfg["openai_model"])
+        model = a.model or (pref(cfg, spec, "edit_model", "openai_edit_model") if refs else pref(cfg, spec, "model", "openai_model"))
     else:
-        model = a.model or (spec.get("edit_model") if refs and spec.get("edit_model") else spec.get("model"))
+        model = a.model or pref(cfg, spec, "model") or (
+            spec.get("edit_model") if refs and spec.get("edit_model") else spec.get("model"))
         if not model:
             die(f"no model set for {spec['name']} (imagegenkit provider add {spec['name']} ... --model <id>)")
     fmt = a.format
     if not fmt and a.out and Path(a.out).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
         fmt = {".jpg": "jpeg"}.get(Path(a.out).suffix.lower(), Path(a.out).suffix.lower()[1:])
+    fmt = fmt or pref(cfg, spec, "format")
+    resolution = a.resolution or pref(cfg, spec, "resolution", "resolution" if official else None)
     params = {}
     if a.n > 1:
         params["n"] = a.n
@@ -570,14 +601,15 @@ def run_openai(a, cfg, spec, task):
         aspect = a.aspect
         if not aspect and refs:  # keep the input image's shape instead of forcing square
             aspect = image_aspect(refs[0])
-        params["size"] = openai_size(aspect, a.resolution or cfg["resolution"]) if aspect or not refs else "auto"
+        params["size"] = openai_size(aspect, resolution) if aspect or not refs else "auto"
     elif a.aspect and spec.get("size_style") == "aspect":  # e.g. Recraft takes "16:9"
         w, h = parse_aspect(a.aspect)
         params["size"] = f"{w:g}:{h:g}"
     elif a.aspect:
-        params["size"] = openai_size(a.aspect, a.resolution or cfg["resolution"])
-    quality = a.quality or (cfg["quality"] if official else None)
-    for k, v in (("quality", quality), ("background", a.background), ("output_format", fmt if official else None),
+        params["size"] = openai_size(a.aspect, resolution or "1K")
+    quality = a.quality or pref(cfg, spec, "quality", "quality" if official else None)
+    background = a.background or pref(cfg, spec, "background")
+    for k, v in (("quality", quality), ("background", background), ("output_format", fmt if official else None),
                  ("output_compression", a.compression), ("moderation", a.moderation)):
         if v is not None:
             params[k] = v
@@ -607,14 +639,15 @@ def run_xai(a, cfg, spec, task):
     prompt = read_prompt(a)
     refs = check_refs(a.image)
     note_unsupported(a, spec["label"], ["quality", "background", "size", "mask", "compression", "moderation"])
-    model = a.model or cfg["xai_model"]
+    model = a.model or pref(cfg, spec, "model", "xai_model")
     params = {}
     if a.n > 1:
         params["n"] = a.n
     if a.aspect:
         params["aspect_ratio"] = nearest_aspect(a.aspect, XAI_ASPECTS)
-    if a.resolution:  # API default is 1k, the cheapest
-        params["resolution"] = "1k" if a.resolution.upper() == "1K" else "2k"
+    resolution = a.resolution or pref(cfg, spec, "resolution")
+    if resolution:  # API default is 1k, the cheapest
+        params["resolution"] = "1k" if resolution.upper() == "1K" else "2k"
     params.update(parse_extra(a.extra))
     body = {"model": model, "prompt": prompt, "response_format": "b64_json", **params}
     if refs:
@@ -636,13 +669,14 @@ def run_gemini(a, cfg, spec, task):
     prompt = read_prompt(a)
     refs = check_refs(a.image)
     note_unsupported(a, spec["label"], ["quality", "background", "size", "mask", "compression", "moderation"])
-    model = a.model or cfg["gemini_model"]
+    model = a.model or pref(cfg, spec, "model", "gemini_model")
     fmt = {"type": "image"}
     if a.aspect:
         w, h = parse_aspect(a.aspect)
         fmt["aspect_ratio"] = f"{w:g}:{h:g}"
-    if a.resolution:
-        fmt["image_size"] = a.resolution.upper()
+    resolution = a.resolution or pref(cfg, spec, "resolution")
+    if resolution:
+        fmt["image_size"] = resolution.upper()
     inputs = [{"type": "text", "text": prompt}] + [
         {"type": "image", "mime_type": mime_of(p), "data": base64.b64encode(p.read_bytes()).decode()} for p in refs]
     body = {"model": model, "input": inputs, "response_format": fmt}
@@ -758,7 +792,7 @@ def run_openrouter(a, cfg, spec, task):
     prompt = read_prompt(a)
     refs = check_refs(a.image)
     note_unsupported(a, spec["label"], ["background", "size", "mask", "compression", "moderation"])
-    model = a.model or spec.get("model")
+    model = a.model or pref(cfg, spec, "model") or spec.get("model")
     if not model:
         die(f"no model set for {spec['name']}")
     params = {}
@@ -767,12 +801,11 @@ def run_openrouter(a, cfg, spec, task):
     if a.aspect:
         w, h = parse_aspect(a.aspect)
         params["aspect_ratio"] = f"{w:g}:{h:g}"
-    if a.resolution:
-        params["resolution"] = a.resolution.upper()
-    if a.quality:
-        params["quality"] = a.quality
-    if a.format:
-        params["output_format"] = a.format
+    for key, val in (("resolution", (a.resolution or pref(cfg, spec, "resolution") or "").upper() or None),
+                     ("quality", a.quality or pref(cfg, spec, "quality")),
+                     ("output_format", a.format or pref(cfg, spec, "format"))):
+        if val:
+            params[key] = val
     params.update(parse_extra(a.extra))
     body = {"model": model, "prompt": prompt, **params}
     if refs:
@@ -796,11 +829,12 @@ def run_together(a, cfg, spec, task):
     prompt = read_prompt(a)
     refs = check_refs(a.image)
     note_unsupported(a, spec["label"], ["quality", "background", "mask", "compression", "moderation"])
-    model = a.model or spec.get("model")
+    model = a.model or pref(cfg, spec, "model") or spec.get("model")
+    resolution = a.resolution or pref(cfg, spec, "resolution")
     params = {}
     if a.n > 1:
         params["n"] = a.n
-    size = a.size if a.size and "x" in a.size else (openai_size(a.aspect, a.resolution or "1K") if a.aspect or a.resolution else None)
+    size = a.size if a.size and "x" in a.size else (openai_size(a.aspect, resolution or "1K") if a.aspect or resolution else None)
     if size:
         w, h = size.split("x")
         params.update(width=int(w), height=int(h))
@@ -826,9 +860,10 @@ def run_fal(a, cfg, spec, task):
     if a.image:
         die(f"{spec['label']}: reference images aren't supported yet; use another provider for edits")
     note_unsupported(a, spec["label"], ["quality", "background", "mask", "compression", "moderation"])
-    model = a.model or spec.get("model")
+    model = a.model or pref(cfg, spec, "model") or spec.get("model")
+    resolution = a.resolution or pref(cfg, spec, "resolution")
     params = {"num_images": a.n} if a.n > 1 else {}
-    size = a.size if a.size and "x" in a.size else (openai_size(a.aspect, a.resolution or "1K") if a.aspect or a.resolution else None)
+    size = a.size if a.size and "x" in a.size else (openai_size(a.aspect, resolution or "1K") if a.aspect or resolution else None)
     if size:
         w, h = size.split("x")
         params["image_size"] = {"width": int(w), "height": int(h)}
@@ -857,8 +892,78 @@ def run_fal(a, cfg, spec, task):
     finish(a, cfg, spec, task, model, prompt, params, [], images, None, t0)
 
 
+def run_codex(a, cfg, spec, task):
+    """Images through the logged-in Codex CLI (ChatGPT plan, no API key): its built-in image tool."""
+    prompt = read_prompt(a)
+    refs = check_refs(a.image)
+    note_unsupported(a, spec["label"], ["size", "mask", "compression", "moderation", "format", "extra", "model"])
+    c = codex_bin()
+    if not c:
+        raise Unavailable("Codex CLI not installed (npm install -g @openai/codex)")
+    call = "Use your image generation tool exactly once" if a.n == 1 else \
+        f"Use your image generation tool exactly {a.n} times (separate calls, same prompt)"
+    if refs:
+        call += ", editing or combining the attached image(s)"
+    hints = []
+    if a.aspect:
+        w, h = parse_aspect(a.aspect)
+        hints.append(f"aspect ratio {w:g}:{h:g}")
+    quality = a.quality or pref(cfg, spec, "quality")
+    if quality and quality != "auto":
+        hints.append(f"{quality} quality")
+    if (a.background or pref(cfg, spec, "background")) == "transparent":
+        hints.append("transparent background")
+    if hints:
+        call += " with " + ", ".join(hints)
+    instruction = (f"{call}, passing exactly the text between the <prompt> tags as the prompt. Do not run shell "
+                   f"commands or edit files.\n\n<prompt>\n{prompt}\n</prompt>\n\nThen reply with just: done")
+    cmd = [c, "exec", "--json", "--skip-git-repo-check", "-C", str(CODEX_WORKDIR), "-s", "read-only",
+           "-c", "model_reasoning_effort=low"]
+    for r in refs:
+        cmd += ["-i", str(r.resolve())]
+    cmd.append(instruction)
+    log(f"Codex image_gen | {len(refs)} ref(s) | {', '.join(hints) or 'auto'} | n={a.n}")
+    if a.dry_run:
+        return log(" ".join(shlex.quote(x) for x in cmd))
+    CODEX_WORKDIR.mkdir(parents=True, exist_ok=True)
+    gen_dir = CODEX_HOME / "generated_images"
+    t0 = time.time()
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=CODEX_WORKDIR,
+                           stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        die(f"Codex timed out after {TIMEOUT}s")
+    thread, failure, paths = None, None, []
+    for line in r.stdout.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("type") == "thread.started":
+            thread = ev.get("thread_id")
+        elif ev.get("type") == "turn.failed":
+            failure = (ev.get("error") or {}).get("message", "turn failed")
+        paths += re.findall(r'[^"\s]*generated_images/[^"\s]+\.(?:png|jpe?g|webp)', line)
+    files = [Path(p) for p in dict.fromkeys(paths) if Path(p).exists()]
+    if not files and thread:
+        files = sorted((gen_dir / thread).glob("*"), key=lambda f: f.stat().st_mtime) if (gen_dir / thread).is_dir() else []
+    if not files:  # last resort: anything Codex saved during this run
+        files = sorted((f for f in gen_dir.glob("*/*") if f.stat().st_mtime >= t0 - 1),
+                       key=lambda f: f.stat().st_mtime)
+    files = [f for f in files if f.suffix.lower() in MIME_BY_EXT][: max(a.n, 1) * 2]
+    if not files:
+        said = failure or (r.stderr.strip()[-600:] or "(nothing)")
+        if re.search(r"401|unauthori|log ?in|refresh token|sign in", said, re.I):
+            raise Unavailable(f"not logged in (run: codex login). Codex said: {said}")
+        die(f"Codex returned no image (exit {r.returncode}). Codex said: {said}")
+    images = [(f.read_bytes(), MIME_BY_EXT.get(f.suffix.lower(), "image/png")) for f in files]
+    finish(a, cfg, spec, task, "gpt-image (Codex)", prompt, {"tool": "image_gen", "aspect": a.aspect, "n": a.n},
+           refs, images, None, t0, {"codex_thread": thread})
+
+
 RUNNERS = {"openai": run_openai, "openai-compatible": run_openai, "xai": run_xai, "gemini": run_gemini,
-           "grok-build": run_grok, "openrouter": run_openrouter, "together": run_together, "fal": run_fal}
+           "grok-build": run_grok, "codex-cli": run_codex, "openrouter": run_openrouter, "together": run_together,
+           "fal": run_fal}
 
 
 def run_provider(a, cfg):
@@ -922,6 +1027,14 @@ def check_provider(spec, cfg):
     ok, why = readiness(spec)
     if not ok:
         return "missing", why
+    if spec["type"] == "codex-cli":
+        try:
+            out = subprocess.run([codex_bin(), "login", "status"], capture_output=True, text=True, timeout=60,
+                                 stdin=subprocess.DEVNULL)
+            text = (out.stdout + out.stderr).strip()
+        except subprocess.SubprocessError:
+            text = ""
+        return ("ok", text.splitlines()[0]) if "logged in" in text.lower() else ("error", "not logged in (run: codex login)")
     if spec["type"] == "grok-build":
         try:
             out = subprocess.run([grok_bin(), "models"], capture_output=True, text=True, timeout=60).stdout
@@ -986,8 +1099,8 @@ def cmd_providers(a, cfg):
     for name, spec in provs.items():
         ready, why = readiness(spec)
         rows.append({"name": name, "label": spec["label"], "type": spec["type"], "builtin": spec["builtin"],
-                     "needs_key": spec["type"] != "grok-build", "keychain": keychain_service(name)
-                     if spec["type"] != "grok-build" else None, "env": spec.get("env"), "ready": ready,
+                     "needs_key": spec["type"] not in SUBSCRIPTION_TYPES, "keychain": keychain_service(name)
+                     if spec["type"] not in SUBSCRIPTION_TYPES else None, "env": spec.get("env"), "ready": ready,
                      "status": why, "base_url": spec.get("base_url"), "model": spec.get("model"),
                      "key_url": spec.get("key_url")})
     if a.json:
@@ -1034,8 +1147,8 @@ def cmd_set_key(a, cfg):
     spec = provs.get(a.provider)
     if not spec:
         die(f"unknown provider {a.provider} (see: imagegenkit providers)")
-    if spec["type"] == "grok-build":
-        die("the Grok subscription has no key. Log in with: grok login  (or use the xai provider with an API key)")
+    if spec["type"] in SUBSCRIPTION_TYPES:
+        die(f"{spec['label']} has no key. Log in with: {'grok login' if spec['type'] == 'grok-build' else 'codex login'}")
     if a.clipboard:
         key = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout.strip()
         if not key:
@@ -1067,7 +1180,7 @@ def cmd_delete_key(a, cfg):
 
 def cmd_models(a, cfg):
     spec = all_providers(cfg).get(a.provider or "openai")
-    if not spec or spec["type"] in ("grok-build", "gemini"):
+    if not spec or spec["type"] in ("grok-build", "codex-cli", "gemini"):
         die("models works for openai, xai and OpenAI-compatible providers")
     key = require_key(spec)
     if spec["type"] == "xai":

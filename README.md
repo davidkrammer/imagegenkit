@@ -85,6 +85,7 @@ imagegenkit providers                          # what's set up, order, task rout
 imagegenkit check                              # live check of keys and logins
 imagegenkit usage                              # this month's spend, images and limits
 imagegenkit update                             # update the command and skills from the latest release
+imagegenkit config get tasks.draft.provider    # read a setting
 imagegenkit config set provider_defaults.openai.quality high
 ```
 

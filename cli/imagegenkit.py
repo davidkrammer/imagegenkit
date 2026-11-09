@@ -5,10 +5,10 @@
   imagegenkit final "PROMPT"         final designs
   imagegenkit edit "PROMPT" -i x.png edit or refine an image
   imagegenkit transparent "PROMPT"   transparent PNG
-  imagegenkit <provider> "PROMPT"    use one provider directly (openai, grok, xai, gemini, or your own)
+  imagegenkit <provider> "PROMPT"    use one provider directly (openai, grok, codex, xai, gemini, ...)
 
-Providers: OpenAI (API key), Grok (grok.com subscription via the Grok Build CLI), xAI API (API key),
-Google Gemini (API key), and any OpenAI-compatible endpoint you add. API keys live in the macOS Keychain
+Providers: Grok and Codex subscriptions (via the Grok Build and Codex CLIs), OpenAI, xAI, Google Gemini,
+OpenRouter, Recraft, Together AI, fal.ai (API keys), and any OpenAI-compatible endpoint you add. API keys live in the macOS Keychain
 ("imagegenkit-<provider>"); env vars like OPENAI_API_KEY override them. Settings: ~/.config/imagegenkit/config.json,
 best edited in the ImageGenKit app. Saved image paths go to stdout (one per line); everything else to stderr.
 Stdlib only, Python 3.9+, macOS.
@@ -24,18 +24,23 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import time
+import http.client as http_client
 import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 HOMEPAGE = "https://github.com/davidkrammer/imagegenkit"
 GITHUB_REPO = "davidkrammer/imagegenkit"
-CATALOG_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/catalog/providers.json"
+# The env overrides are for testing against a local server.
+RAW_BASE = os.environ.get("IMAGEGENKIT_RAW_BASE", f"https://raw.githubusercontent.com/{GITHUB_REPO}").rstrip("/")
+RELEASES_API = os.environ.get("IMAGEGENKIT_RELEASES_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+CATALOG_URL = f"{RAW_BASE}/main/catalog/providers.json"
 
 CONFIG_DIR = Path.home() / ".config" / "imagegenkit"
 LEGACY_DIR = Path.home() / ".config" / "imagegen"  # used by the old `imagegen` CLI
@@ -91,6 +96,7 @@ BUILTIN_PROVIDERS = {
                "env": "GEMINI_API_KEY", "key_url": "https://aistudio.google.com/apikey"},
 }
 CAN_TRANSPARENT = {"openai"}  # provider types that return real alpha
+CUSTOM_TYPES = ("openai-compatible", "openrouter", "together", "fal")  # adapters for providers in config/catalog
 SUBSCRIPTION_TYPES = {"grok-build", "codex-cli"}  # log in instead of an API key
 RESERVED = set(TASKS) | {"usage", "update", "check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
                          "help", "log"}
@@ -115,7 +121,7 @@ GEMINI_API_REVISION = "2026-05-20"
 
 class ApiError(Exception):
     def __init__(self, status, message):
-        super().__init__(f"HTTP {status}: {message}")
+        super().__init__(f"HTTP {status}: {message}" if status else message)
         self.status = status
         self.message = message
 
@@ -186,15 +192,18 @@ def enable_provider(name):
         write_user_config(data)
 
 
-def catalog_entry(name):
-    """The provider's entry in the cached catalog (~/.config/imagegenkit/catalog.json), refreshed from GitHub."""
+def catalog_providers():
+    """Entries of the cached catalog (~/.config/imagegenkit/catalog.json), refreshed from GitHub."""
     try:
-        for e in json.loads((CONFIG_DIR / "catalog.json").read_text()).get("providers", []):
-            if e.get("id") == name:
-                return e
-    except (OSError, ValueError):
-        pass
-    return {}
+        entries = json.loads((CONFIG_DIR / "catalog.json").read_text()).get("providers", [])
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [e for e in entries if isinstance(e, dict) and e.get("id")] if isinstance(entries, list) else []
+
+
+def catalog_entry(name):
+    """The provider's entry in the cached catalog."""
+    return next((e for e in catalog_providers() if e.get("id") == name), {})
 
 
 def refresh_catalog():
@@ -208,7 +217,7 @@ def refresh_catalog():
     path = CONFIG_DIR / "catalog.json"
     try:
         old = json.loads(path.read_text())
-        if str(old.get("updated", "")) > str(new.get("updated", "")):
+        if str(old.get("updated", "")) >= str(new.get("updated", "")):
             return False
     except (OSError, ValueError):
         pass
@@ -243,11 +252,23 @@ def all_providers(cfg):
             continue
         s = dict(spec)
         s.setdefault("type", "openai-compatible")
-        if s["type"] not in ("openai-compatible", "openrouter", "together", "fal"):
+        if s["type"] not in CUSTOM_TYPES:
             s["type"] = "openai-compatible"
         s.setdefault("label", name)
         s.setdefault("env", re.sub(r"[^A-Z0-9]", "_", name.upper()) + "_API_KEY")
         s.update(name=name, builtin=False)
+        out[name] = s
+    # Catalog providers the app would add (OpenRouter, Recraft, ...), so they work without the app too.
+    for e in catalog_providers():
+        name = e["id"]
+        if name in out or name in RESERVED or e.get("adapter") not in CUSTOM_TYPES or not e.get("base_url"):
+            continue
+        s = {"type": e["adapter"], "label": e.get("name") or name, "catalog": name, "base_url": e["base_url"],
+             "model": e.get("model"), "env": re.sub(r"[^A-Z0-9]", "_", name.upper()) + "_API_KEY",
+             "key_url": e.get("key_url"), "name": name, "builtin": False}
+        for k in ("edit_model", "size_style"):
+            if e.get(k):
+                s[k] = e[k]
         out[name] = s
     return out
 
@@ -329,20 +350,32 @@ def readiness(spec):
 
 # ---------- http ----------
 
+def short_text(raw, limit=300):
+    """A non-JSON body (often an HTML error page) as one short line."""
+    text = " ".join(re.sub(r"<[^>]+>", " ", raw).split())
+    return (text[:limit] + "...") if len(text) > limit else (text or "(empty)")
+
+
 def http(method, url, headers=None, body=None, retries=2):
     for attempt in range(retries + 1):
         req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
                 raw = r.read()
-                return json.loads(raw) if raw else {}
+            try:
+                data = json.loads(raw) if raw.strip() else {}
+            except ValueError:
+                raise ApiError(0, f"the provider sent an unreadable answer: {short_text(raw.decode('utf-8', 'replace'))}")
+            if not isinstance(data, dict):
+                raise ApiError(0, "the provider sent an unexpected answer")
+            return data
         except urllib.error.HTTPError as e:
             raw = e.read().decode("utf-8", "replace")
             try:
                 err = json.loads(raw).get("error", raw)
                 msg = err.get("message", raw) if isinstance(err, dict) else str(err)
             except (ValueError, AttributeError):
-                msg = raw[:2000]
+                msg = short_text(raw)
             if e.code in (429, 500, 502, 503, 504) and attempt < retries:
                 wait = 5 * (attempt + 1)
                 log(f"  HTTP {e.code}, retrying in {wait}s: {msg[:200]}")
@@ -350,10 +383,16 @@ def http(method, url, headers=None, body=None, retries=2):
                 continue
             raise ApiError(e.code, msg)
         except urllib.error.URLError as e:
+            if isinstance(e.reason, (socket.timeout, TimeoutError)):
+                raise ApiError(0, f"no answer from the provider after {TIMEOUT:g}s (timed out)")
             if attempt < retries:
                 time.sleep(3)
                 continue
             raise ApiError(0, f"network error: {e.reason}")
+        except (socket.timeout, TimeoutError):  # no retry: the provider may still bill a slow request
+            raise ApiError(0, f"no answer from the provider after {TIMEOUT:g}s (timed out)")
+        except (OSError, http_client.HTTPException) as e:
+            raise ApiError(0, f"network error: {e}")
 
 
 def multipart(fields, files):
@@ -464,8 +503,9 @@ def save_images(images, out, prompt, overwrite, cfg):
     saved = []
     for i, (data, mime) in enumerate(images):
         mime = sniff(data, mime or "image/png")
-        if user_ext == ".png" and mime != "image/png":
-            data, mime = convert_png(data, mime)
+        want = MIME_BY_EXT.get(user_ext or "")
+        if want in ("image/png", "image/jpeg") and mime != want:  # -o x.png / x.jpg: save what was asked for
+            data, mime = convert_image(data, mime, want)
         ext = EXT_BY_MIME.get(mime, ".png")
         if user_ext and MIME_BY_EXT.get(user_ext) == mime:
             ext = user_ext  # keep .jpeg vs .jpg as requested
@@ -479,16 +519,17 @@ def save_images(images, out, prompt, overwrite, cfg):
     return saved
 
 
-def convert_png(data, mime):
-    """JPEG/WebP -> PNG via macOS sips, when -o asks for .png."""
+def convert_image(data, mime, want):
+    """Convert to PNG or JPEG via macOS sips when -o asks for that format. Keeps the original if it fails."""
     GROK_WORKDIR.mkdir(parents=True, exist_ok=True)
     src = GROK_WORKDIR / f"{uuid.uuid4().hex}{EXT_BY_MIME.get(mime, '.img')}"
-    dst = src.with_suffix(".png")
+    dst = src.with_suffix(".out" + EXT_BY_MIME[want])
+    fmt = ["-s", "format", "png"] if want == "image/png" else ["-s", "format", "jpeg", "-s", "formatOptions", "90"]
     try:
         src.write_bytes(data)
-        subprocess.run(["sips", "-s", "format", "png", str(src), "--out", str(dst)], capture_output=True)
-        if dst.exists():
-            return dst.read_bytes(), "image/png"
+        subprocess.run(["sips"] + fmt + [str(src), "--out", str(dst)], capture_output=True)
+        if dst.exists() and dst.stat().st_size:
+            return dst.read_bytes(), want
     finally:
         for f in (src, dst):
             if f.exists():
@@ -605,15 +646,35 @@ def openai_size(aspect, resolution):
     return f"{w}x{h}"
 
 
+def b64_image(text):
+    try:
+        return base64.b64decode(text)
+    except (ValueError, TypeError):
+        raise ApiError(0, "the provider sent an image that can't be decoded")
+
+
+def download(url):
+    """An image the provider returned as a URL."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "imagegenkit"}),
+                                    timeout=TIMEOUT) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        raise ApiError(e.code, f"couldn't download the image from {url[:120]}")
+    except (OSError, ValueError, http_client.HTTPException) as e:
+        raise ApiError(0, f"couldn't download the image from {url[:120]}: {getattr(e, 'reason', e)}")
+
+
 def collect_images(resp, skip=()):
     """Base64 or URL images from an OpenAI-style `data` list."""
     images = []
     for item in resp.get("data", []) or []:
+        if not isinstance(item, dict):
+            continue
         if item.get("b64_json"):
-            data = base64.b64decode(item["b64_json"])
+            data = b64_image(item["b64_json"])
         elif item.get("url"):
-            with urllib.request.urlopen(item["url"], timeout=TIMEOUT) as r:
-                data = r.read()
+            data = download(item["url"])
         else:
             continue
         if hashlib.sha1(data).hexdigest() not in skip:
@@ -680,20 +741,35 @@ def month_usage(cfg):
     return cost, images, runs
 
 
+class LimitReached(Unavailable):
+    """A monthly limit with 'stop_paid' blocks this (paid) provider."""
+
+
+def limit_values(cfg):
+    """(spend limit, image limit, stop_paid) from config `limits`, ignoring values that aren't positive numbers."""
+    lim = cfg.get("limits")
+    lim = lim if isinstance(lim, dict) else {}
+
+    def num(v):
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+        return v if v > 0 else None
+    return num(lim.get("monthly_cost")), num(lim.get("monthly_images")), lim.get("stop_paid") is True
+
+
 def check_limits(cfg, spec):
-    """With 'stop_paid', refuse paid providers past the spend limit and everything past the image limit."""
-    lim = cfg.get("limits") or {}
-    if not lim.get("stop_paid"):
-        return
-    cost_limit, image_limit = lim.get("monthly_cost"), lim.get("monthly_images")
-    if not cost_limit and not image_limit:
+    """With 'stop_paid', refuse paid providers once the spend or image limit is reached. Subscriptions keep working
+    (same as the app: "Paid images are paused until next month. Subscriptions still work.")."""
+    cost_limit, image_limit, stop = limit_values(cfg)
+    if not stop or spec["type"] in SUBSCRIPTION_TYPES or not (cost_limit or image_limit):
         return
     cost, images, _ = month_usage(cfg)
+    if cost_limit and cost >= cost_limit:
+        raise LimitReached(f"monthly spend limit reached (${cost:.2f} of ${cost_limit:.2f})")
     if image_limit and images >= image_limit:
-        raise Unavailable(f"monthly image limit reached ({images} of {image_limit}). Change it in ImageGenKit › Settings › Limits")
-    if cost_limit and spec["type"] not in SUBSCRIPTION_TYPES and cost >= cost_limit:
-        raise Unavailable(f"monthly spend limit reached (${cost:.2f} of ${cost_limit:.2f}). Subscriptions still work; "
-                          "change it in ImageGenKit › Settings › Limits")
+        raise LimitReached(f"monthly image limit reached ({images} of {image_limit:g})")
 
 
 # ---------- providers ----------
@@ -821,8 +897,19 @@ def run_gemini(a, cfg, spec, task):
         images += find_inline_images(resp, skip)
         usage = resp.get("usage") or resp.get("usageMetadata") or resp.get("usage_metadata") or usage
         if not images:
-            die(f"no image in response: {json.dumps(resp)[:1500]}")
+            die(f"no image in the answer: {brief_response(resp)}")
     finish(a, cfg, spec, task, model, prompt, params, refs, images, usage, t0)
+
+
+def brief_response(resp):
+    """The provider's answer without base64 blobs, short enough to read (e.g. a text reply or a block reason)."""
+    def strip(o):
+        if isinstance(o, dict):
+            return {k: ("<data>" if k == "data" and isinstance(v, str) and len(v) > 200 else strip(v)) for k, v in o.items()}
+        if isinstance(o, list):
+            return [strip(v) for v in o]
+        return o
+    return json.dumps(strip(resp), ensure_ascii=False)[:600]
 
 
 def find_inline_images(obj, skip=()):
@@ -838,7 +925,7 @@ def find_inline_images(obj, skip=()):
                 if isinstance(o.get(k), dict) and isinstance(o[k].get("data"), str):
                     data, mime = o[k]["data"], o[k].get("mimeType") or o[k].get("mime_type")
             if data:
-                raw = base64.b64decode(data)
+                raw = b64_image(data)
                 digest = hashlib.sha1(raw).hexdigest()
                 if digest not in seen:
                     seen.add(digest)
@@ -893,7 +980,7 @@ def run_grok(a, cfg, spec, task):
         die(f"Grok timed out after {TIMEOUT}s")
     files = sorted(GROK_HOME.glob(f"sessions/*/{sid}/images/*"), key=lambda f: f.stat().st_mtime)
     if not files:
-        said = (r.stdout.strip() + " " + r.stderr.strip()).strip()[-1000:]
+        said = " ".join((r.stdout + " " + r.stderr).split())[-400:]
         if r.returncode and re.search(r"log ?in|auth|unauthori", said, re.I):
             raise Unavailable(f"not logged in (run: grok login). Grok said: {said}")
         die(f"Grok returned no image (exit {r.returncode}). Grok said: {said or '(nothing)'}")
@@ -926,11 +1013,11 @@ def run_openrouter(a, cfg, spec, task):
     if a.aspect:
         w, h = parse_aspect(a.aspect)
         params["aspect_ratio"] = f"{w:g}:{h:g}"
-    for key, val in (("resolution", (a.resolution or pref(cfg, spec, "resolution") or "").upper() or None),
-                     ("quality", a.quality or pref(cfg, spec, "quality")),
-                     ("output_format", a.format or pref(cfg, spec, "format"))):
+    for name, val in (("resolution", (a.resolution or pref(cfg, spec, "resolution") or "").upper() or None),
+                      ("quality", a.quality or pref(cfg, spec, "quality")),
+                      ("output_format", a.format or pref(cfg, spec, "format"))):
         if val:
-            params[key] = val
+            params[name] = val
     params.update(parse_extra(a.extra))
     body = {"model": model, "prompt": prompt, **params}
     if refs:
@@ -1005,12 +1092,11 @@ def run_fal(a, cfg, spec, task):
                 json.dumps(body).encode())
     images = []
     for item in resp.get("images", []) or []:
-        url = item.get("url", "")
+        url = item.get("url", "") if isinstance(item, dict) else ""
         if url.startswith("data:"):
-            data = base64.b64decode(url.split(",", 1)[1])
+            data = b64_image(url.split(",", 1)[-1])
         elif url:
-            with urllib.request.urlopen(url, timeout=TIMEOUT) as r:
-                data = r.read()
+            data = download(url)
         else:
             continue
         images.append((data, item.get("content_type") or sniff(data)))
@@ -1070,9 +1156,10 @@ def run_codex(a, cfg, spec, task):
             failure = (ev.get("error") or {}).get("message", "turn failed")
         paths += re.findall(r'[^"\s]*generated_images/[^"\s]+\.(?:png|jpe?g|webp)', line)
     files = [Path(p) for p in dict.fromkeys(paths) if Path(p).exists()]
-    if not files and thread:
-        files = sorted((gen_dir / thread).glob("*"), key=lambda f: f.stat().st_mtime) if (gen_dir / thread).is_dir() else []
-    if not files:  # last resort: anything Codex saved during this run
+    if not files and thread and not failure:
+        files = sorted((f for f in (gen_dir / thread).glob("*") if f.stat().st_mtime >= t0 - 1),
+                       key=lambda f: f.stat().st_mtime) if (gen_dir / thread).is_dir() else []
+    if not files and not thread and not failure:  # last resort: anything Codex saved during this run
         files = sorted((f for f in gen_dir.glob("*/*") if f.stat().st_mtime >= t0 - 1),
                        key=lambda f: f.stat().st_mtime)
     files = [f for f in files if f.suffix.lower() in MIME_BY_EXT][: max(a.n, 1) * 2]
@@ -1091,14 +1178,31 @@ RUNNERS = {"openai": run_openai, "openai-compatible": run_openai, "xai": run_xai
            "fal": run_fal}
 
 
+def api_message(spec, e):
+    """A provider error in plain words, with what to do for the common cases."""
+    hint = {401: "the key was rejected. Check it in ImageGenKit › Settings › Providers",
+            403: "access denied. Check the key and the account's permissions",
+            429: "too many requests or no credits left. Wait a bit or check the account's billing"}.get(e.status)
+    if e.status and e.status >= 500:
+        hint = "the provider has a problem right now. Try again later"
+    return f"{spec['label']}: " + (f"{hint} (HTTP {e.status}: {e.message[:300]})" if hint else str(e)[:400])
+
+
+LIMIT_HINT = "Paid images are paused until next month; subscriptions still work. Change it in ImageGenKit › Settings › Limits"
+
+
 def run_provider(a, cfg):
     spec = all_providers(cfg)[a.cmd]
     try:
         if not a.dry_run:
             check_limits(cfg, spec)
         RUNNERS[spec["type"]](a, cfg, spec, None)
+    except LimitReached as e:
+        die(f"{spec['name']}: {e}. {LIMIT_HINT}")
     except Unavailable as e:
         die(f"{spec['name']}: {e}")
+    except ApiError as e:
+        die(api_message(spec, e))
 
 
 def run_task(a, cfg):
@@ -1115,7 +1219,7 @@ def run_task(a, cfg):
             candidates.append(name)
     if a.provider:
         candidates = [a.provider] if a.provider in provs else die(f"unknown provider {a.provider}")
-    skipped = []
+    skipped, limit = [], None
     for name in candidates:
         spec = provs[name]
         if task == "transparent" and spec["type"] not in CAN_TRANSPARENT:
@@ -1137,8 +1241,9 @@ def run_task(a, cfg):
         try:
             if not a.dry_run:
                 check_limits(cfg, spec)
-        except Unavailable as e:
-            skipped.append(f"{name}: {e}")
+        except LimitReached as e:
+            limit = str(e)
+            skipped.append(f"{name}: monthly limit")
             continue
         log(f"{task} -> {name}" + (f" (skipped {'; '.join(skipped)})" if skipped else ""))
         try:
@@ -1147,8 +1252,10 @@ def run_task(a, cfg):
             skipped.append(f"{name}: {e}")
         except ApiError as e:
             if e.status not in (401, 403):
-                raise
+                die(api_message(spec, e))
             skipped.append(f"{name}: {e}")
+    if limit:
+        die(f"{limit}. {LIMIT_HINT}")
     die(f"no provider ready for '{task}' ({'; '.join(skipped) or 'none configured'}). "
         "Set one up in the ImageGenKit app, or: imagegenkit set-key openai")
 
@@ -1328,7 +1435,9 @@ def cmd_models(a, cfg):
 
 def cmd_usage(a, cfg):
     cost, images, runs = month_usage(cfg)
-    lim = cfg.get("limits") or {}
+    cost_limit, image_limit, stop = limit_values(cfg)
+    lim = {k: v for k, v in (("monthly_cost", cost_limit), ("monthly_images", image_limit and int(image_limit)),
+                             ("stop_paid", stop)) if v}
     out = {"month": dt.datetime.now().strftime("%Y-%m"), "cost": round(cost, 4), "images": images, "runs": runs,
            "limits": lim}
     if a.json:
@@ -1339,7 +1448,9 @@ def cmd_usage(a, cfg):
         print(f"spend limit  ${lim['monthly_cost']:.2f}  ({cost / lim['monthly_cost']:.0%} used)")
     if lim.get("monthly_images"):
         print(f"image limit  {lim['monthly_images']}  ({images / lim['monthly_images']:.0%} used)")
-    if lim and not lim.get("stop_paid"):
+    if lim.get("stop_paid"):
+        print("when reached: paid images pause, subscriptions keep working")
+    elif lim:
         print("limits warn only (stop_paid is off)")
 
 
@@ -1349,13 +1460,16 @@ def version_tuple(v):
 
 def self_update(force_check=True):
     """Install the CLI (and ImageGenKit-managed skills) from the latest GitHub release. Returns a short message."""
+    me = Path(os.path.realpath(__file__))
+    if (me.parent.parent / ".git").exists():
+        return f"not updating a source checkout ({me.parent.parent}); use git pull"
     ua = {"User-Agent": "imagegenkit", "Accept": "application/vnd.github+json"}
-    req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", headers=ua)
+    req = urllib.request.Request(RELEASES_API, headers=ua)
     with urllib.request.urlopen(req, timeout=8) as r:
         tag = json.loads(r.read())["tag_name"]
 
     def fetch(path):
-        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{tag}/{path}"
+        url = f"{RAW_BASE}/{tag}/{path}"
         with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "imagegenkit"}), timeout=20) as r:
             return r.read()
 
@@ -1367,7 +1481,6 @@ def self_update(force_check=True):
     if version_tuple(remote) <= version_tuple(VERSION):
         return f"up to date ({VERSION})"
     compile(code, "imagegenkit.py", "exec")  # never install something that doesn't parse
-    me = Path(os.path.realpath(__file__))
     tmp = me.with_name(me.name + ".new")
     tmp.write_bytes(code)
     tmp.chmod(0o755)
@@ -1384,7 +1497,8 @@ def self_update(force_check=True):
 
 
 def auto_update(cfg):
-    """Once a day, after a normal run: quietly update from the latest release (config auto_update: false turns it off)."""
+    """Once a day, after a normal run: update from the latest release in a detached background process, so the
+    run never waits for GitHub (config auto_update: false turns it off)."""
     if cfg.get("auto_update") is False or os.environ.get("IMAGEGENKIT_NO_UPDATE"):
         return
     stamp = CONFIG_DIR / ".update-check"
@@ -1393,29 +1507,39 @@ def auto_update(cfg):
             return
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         stamp.touch()
-        try:
-            refresh_catalog()
-        except Exception:
-            pass
-        msg = self_update()
-        if msg.startswith("updated"):
-            log(f"imagegenkit: {msg}")
-    except Exception:  # offline, rate limited, private repo, read-only install: try again tomorrow
+        subprocess.Popen([sys.executable, os.path.realpath(__file__), "_auto-update"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except Exception:  # read-only config, no python: try again tomorrow
+        pass
+
+
+def background_update():
+    """The detached part of auto_update: offline, rate limited, private repo, read-only install: try again tomorrow."""
+    try:
+        refresh_catalog()
+    except Exception:
+        pass
+    try:
+        self_update()
+    except Exception:
         pass
 
 
 def cmd_update(a, cfg):
     try:
         if refresh_catalog():
-            print("Provider list updated.")
+            print("Provider list updated.", flush=True)
     except (urllib.error.URLError, OSError, ValueError):
         pass
     try:
         print(self_update())
     except urllib.error.HTTPError as e:
-        die(f"couldn't check GitHub (HTTP {e.code}). {HOMEPAGE}/releases")
+        why = {404: "no release found", 403: "GitHub limits requests, try again in an hour"}.get(e.code, f"HTTP {e.code}")
+        die(f"couldn't check for updates ({why}). {HOMEPAGE}/releases")
     except (urllib.error.URLError, OSError) as e:
-        die(f"couldn't update: {e}")
+        die(f"couldn't reach GitHub ({getattr(e, 'reason', e)}). Check your internet connection")
+    except (ValueError, KeyError, SyntaxError):
+        die(f"couldn't update: unexpected answer from GitHub. {HOMEPAGE}/releases")
 
 
 def set_dotted(data, dotted, value):
@@ -1432,6 +1556,16 @@ def set_dotted(data, dotted, value):
 
 
 def cmd_config(a, cfg):
+    if a.action == "get":
+        if not a.key:
+            die("usage: imagegenkit config get <key>   (dotted keys work: tasks.draft.provider)")
+        node = {k: v for k, v in cfg.items() if not k.startswith("_")}
+        for k in a.key.split("."):
+            if not isinstance(node, dict) or k not in node:
+                die(f"{a.key} is not set")
+            node = node[k]
+        print(node if isinstance(node, str) else json.dumps(node, indent=2, ensure_ascii=False))
+        return
     if a.action in ("set", "unset"):
         if not a.key or (a.action == "set" and a.value is None):
             die("usage: imagegenkit config set <key> <value>   (dotted keys work: tasks.draft.provider openai)")
@@ -1477,6 +1611,8 @@ def add_gen_args(p, task=False):
 
 def main():
     migrate_legacy()
+    if sys.argv[1:] == ["_auto-update"]:
+        return background_update()
     cfg = load_config()
     provs = all_providers(cfg)
     ap = argparse.ArgumentParser(
@@ -1530,7 +1666,7 @@ def main():
     p.add_argument("provider", nargs="?")
     p.set_defaults(fn=cmd_models)
     p = sub.add_parser("config", help="show or change settings (~/.config/imagegenkit/config.json)")
-    p.add_argument("action", nargs="?", choices=["show", "set", "unset", "reset"], default="show")
+    p.add_argument("action", nargs="?", choices=["show", "get", "set", "unset", "reset"], default="show")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
     p.set_defaults(fn=cmd_config)
@@ -1555,6 +1691,10 @@ def main():
         die(str(e))
     except KeyboardInterrupt:
         die("interrupted", 130)
+    except Exception as e:  # never show a traceback to non-technical users
+        if os.environ.get("IMAGEGENKIT_DEBUG"):
+            raise
+        die(f"unexpected error: {type(e).__name__}: {e} (set IMAGEGENKIT_DEBUG=1 for details)")
 
 
 if __name__ == "__main__":

@@ -26,10 +26,16 @@ struct OverviewView: View {
         let stats = Stats(entries: store.inRange, rangeStart: store.range.start, cost: config.cost)
         let previous = previousStats
         let allTime = Stats(entries: store.entries, rangeStart: nil, cost: config.cost)
+        let limits = SettingsLimitsModel.current(config)
+        let month = MonthUsage(entries: store.entries, cost: config.cost)
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 OverviewHero(range: store.range, stats: stats, since: store.entries.first?.date, recent: recentImages)
                     .overviewEnter(0)
+
+                if limits.isSet {
+                    OverviewLimitStrip(limits: limits, usage: month).overviewEnter(1)
+                }
 
                 let cards = statCards(stats, previous: previous)
                 ViewThatFits(in: .horizontal) {
@@ -63,6 +69,13 @@ struct OverviewView: View {
         }
         .scrollEdgeEffectStyle(.soft, for: .all)
         .background(Theme.background)
+        .task(id: store.entries.count) {
+            #if DEBUG
+            if SettingsLimitsDebug.shared.limits != nil { return }  // never notify about faked limits
+            #endif
+            let limits = config.limits
+            if limits.isSet { LimitNotifier.check(MonthUsage(entries: store.entries, cost: config.cost), limits: limits) }
+        }
     }
 
     /// The same span right before the selected range (nil for "All").
@@ -231,6 +244,101 @@ struct OverviewArtBackground: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Monthly limit
+
+/// Slim card with this month's usage against the limits; turns orange near and red over the limit.
+private struct OverviewLimitStrip: View {
+    let limits: UsageLimits
+    let usage: MonthUsage
+    @AppStorage("sidebarSection") private var section: SidebarItem = .overview
+    @AppStorage("settingsScrollTo") private var settingsScrollTo = ""
+
+    var body: some View {
+        let level = limits.level(usage)
+        let color = SettingsLimitsModel.color(level)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 20) {
+                header(level, color)
+                meters.frame(minWidth: 420)
+                changeButton
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    header(level, color)
+                    Spacer(minLength: 8)
+                    changeButton
+                }
+                meters
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(padding: 16)
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(color.opacity(level >= .warning ? 0.4 : 0)))
+        .animation(.smooth(duration: 0.3), value: level)
+    }
+
+    private func header(_ level: UsageLimits.Level, _ color: Color) -> some View {
+        HStack(spacing: 12) {
+            IconBadge(symbol: level >= .reached ? "exclamationmark.octagon.fill"
+                        : level == .warning ? "exclamationmark.triangle.fill" : "gauge.with.dots.needle.33percent",
+                      color: color, size: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title(level)).font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(level >= .warning ? color : .primary)
+                Text("Resets on \(SettingsLimitsModel.resetDate(usage))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+        }
+    }
+
+    private var meters: some View {
+        HStack(spacing: 20) {
+            if let c = limits.monthlyCost, let f = limits.costFraction(usage) {
+                meter(value: "\(Format.usd(usage.cost)) of \(Format.usd(c))", fraction: f)
+            }
+            if let i = limits.monthlyImages, let f = limits.imageFraction(usage) {
+                meter(value: "\(usage.images.formatted()) of \(i.formatted()) images", fraction: f)
+            }
+        }
+    }
+
+    private var changeButton: some View {
+        Button("Change Limit") {
+            settingsScrollTo = "limits"
+            section = .settings
+        }
+        .buttonStyle(.link)
+        .font(.callout)
+        .foregroundStyle(Theme.accent)
+        .fixedSize()
+    }
+
+    private func title(_ level: UsageLimits.Level) -> String {
+        switch level {
+        case .reached: limits.stopPaid ? "Limit reached · paid images paused" : "Monthly limit reached"
+        case .warning: "Close to your monthly limit"
+        default: "This month"
+        }
+    }
+
+    private func meter(value: String, fraction: Double) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(value).foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                Text("\(Int((fraction * 100).rounded()))%").fontWeight(.semibold)
+                    .foregroundStyle(fraction >= 0.8 ? SettingsLimitsModel.color(fraction) : .primary)
+            }
+            .font(.callout)
+            .monospacedDigit()
+            .lineLimit(1)
+            SettingsLimitsBar(fraction: fraction, color: SettingsLimitsModel.color(fraction), height: 5)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

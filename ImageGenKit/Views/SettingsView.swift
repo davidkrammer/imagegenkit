@@ -1,41 +1,51 @@
+import AppKit
 import SwiftUI
 
-enum SettingsTab: String, CaseIterable, Identifiable {
-    case providers = "Providers"
-    case tasks = "Use for"
-    case defaults = "Defaults"
-    case prices = "Prices"
-    case install = "Install"
-    var id: String { rawValue }
-}
-
+/// Settings: one scrolling page with Providers, Use for, Images, Prices, Agents and About.
 struct SettingsView: View {
-    @AppStorage("settingsTab") private var tab: SettingsTab = .providers
     @Environment(ConfigStore.self) private var config
     @Environment(ProviderStatus.self) private var status
     @Environment(Installer.self) private var installer
+    @Environment(Updater.self) private var updater
+    @State private var sheet: AddProviderRoute?
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $tab) {
-                ForEach(SettingsTab.allCases) { Text($0.rawValue).tag($0) }
+        ScrollViewReader { proxy in
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                SettingsProvidersSection(sheet: $sheet)
+                SettingsTasksSection()
+                SettingsImagesSection().id("images")
+                SettingsAgentsSection()
+                SettingsAboutSection()
+                Color.clear.frame(height: 1).id("end")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .padding(.vertical, 12)
-            Divider()
-            Group {
-                switch tab {
-                case .providers: ProvidersSettings()
-                default: Text("Being redesigned").foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 24)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
         }
+        #if DEBUG
+        .task {
+            if let target = UserDefaults.standard.string(forKey: "debugScrollTo") {
+                try? await Task.sleep(for: .seconds(3))
+                proxy.scrollTo(target, anchor: target == "end" ? .bottom : .top)
+            }
+        }
+        #endif
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
+        .sheet(item: $sheet) { AddProviderSheet(route: $0) }
         .task {
             config.reload()
             await status.refresh(config.providers)
+            #if DEBUG
+            let d = UserDefaults.standard
+            if d.bool(forKey: "debugAddProvider") { sheet = .add }
+            if let id = d.string(forKey: "debugSetup") { sheet = .setup(id) }
+            if d.bool(forKey: "debugCustom") { sheet = .custom(nil) }
+            #endif
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             config.reload()
@@ -47,248 +57,361 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Providers
+// MARK: - Building blocks
 
-struct ProvidersSettings: View {
-    @Environment(ConfigStore.self) private var config
-    @Environment(ProviderStatus.self) private var status
-    @Environment(Installer.self) private var installer
-    @State private var keyFor: ProviderInfo?
-    @State private var editing: ProviderInfo?
-    @State private var removeKeyFor: ProviderInfo?
-    @State private var deleting: ProviderInfo?
+/// A titled group: small header above a card.
+struct SettingsSection<Content: View, Accessory: View>: View {
+    let title: String
+    @ViewBuilder var accessory: Accessory
+    @ViewBuilder var content: Content
 
     var body: some View {
-        List {
-            Section {
-                ForEach(config.providers) { p in
-                    ProviderRow(provider: p, keyFor: $keyFor, editing: $editing, removeKeyFor: $removeKeyFor, deleting: $deleting)
-                }
-                .onMove { config.moveProviders(from: $0, to: $1) }
-            } header: {
-                Text("Order")
-            } footer: {
-                Button("Add Provider", systemImage: "plus") {
-                    editing = ProviderInfo(id: "", label: "", kind: .compatible, builtin: false)
-                }
-                .padding(.top, 6)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.title3.weight(.semibold))
+                Spacer()
+                accessory
             }
-        }
-        .listStyle(.inset)
-        .scrollContentBackground(.hidden)
-        .frame(maxWidth: 760)
-        .frame(maxWidth: .infinity)
-        .sheet(item: $keyFor) { KeySheet(provider: $0) }
-        .sheet(item: $editing) { CustomProviderSheet(original: $0) }
-        .alert("Remove API key?", isPresented: Binding(get: { removeKeyFor != nil }, set: { if !$0 { removeKeyFor = nil } }),
-               presenting: removeKeyFor) { p in
-            Button("Cancel", role: .cancel) {}
-            Button("Remove", role: .destructive) {
-                Task {
-                    await Keychain.delete(p.keychainService)
-                    await status.refresh(config.providers)
-                }
-            }
-        } message: { p in
-            Text("\(p.label) stops working until you add a key again.")
-        }
-        .alert("Delete provider?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-               presenting: deleting) { p in
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                config.removeCustomProvider(p.id)
-                Task { await Keychain.delete(p.keychainService) }
-            }
-        } message: { p in
-            Text("\(p.label) and its key will be removed.")
+            .padding(.horizontal, 4)
+            VStack(spacing: 0) { content }
+                .frame(maxWidth: .infinity)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06)))
+                .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
         }
     }
 }
 
-private struct ProviderRow: View {
-    let provider: ProviderInfo
-    @Binding var keyFor: ProviderInfo?
-    @Binding var editing: ProviderInfo?
-    @Binding var removeKeyFor: ProviderInfo?
-    @Binding var deleting: ProviderInfo?
-    @Environment(ProviderStatus.self) private var status
-    @Environment(Installer.self) private var installer
+extension SettingsSection where Accessory == EmptyView {
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.accessory = EmptyView()
+        self.content = content()
+    }
+}
+
+/// One row inside a section card: icon, title, optional detail, trailing control.
+struct SettingsRow<Trailing: View>: View {
+    var icon: String?
+    var tint: Color = Theme.accent
+    let title: String
+    var detail: String?
+    var detailColor: Color = .secondary
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        let state = status.state(provider.id)
-        HStack(spacing: 10) {
-            Circle().fill(provider.color).frame(width: 9, height: 9)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(provider.label).font(.body.weight(.medium))
-                Text(subtitle(state)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        HStack(spacing: 12) {
+            if let icon { IconBadge(symbol: icon, color: tint, size: 28) }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                if let detail, !detail.isEmpty {
+                    Text(detail).font(.caption).foregroundStyle(detailColor).lineLimit(1).truncationMode(.middle)
+                }
             }
-            Spacer()
-            if status.testing.contains(provider.id) {
-                ProgressView().controlSize(.small)
-            }
-            primaryButton(state)
-            Menu {
-                if state.isReady {
-                    Button("Test") { Task { await status.test(provider, installer: installer) } }
-                }
-                if let url = provider.keyURL {
-                    Link(provider.needsKey ? "Get API Key" : "Open grok.com", destination: url)
-                }
-                if provider.kind == .grokBuild {
-                    Button("Log In Again") { TerminalRunner.run("grok login") }
-                }
-                if !provider.builtin {
-                    Button("Edit…") { editing = provider }
-                }
-                if provider.needsKey && state.isReady {
-                    Divider()
-                    Button(role: .destructive) { removeKeyFor = provider } label: { DestructiveLabel(title: "Remove Key", icon: "key.slash") }
-                }
-                if !provider.builtin {
-                    Button(role: .destructive) { deleting = provider } label: { DestructiveLabel(title: "Delete Provider") }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            .layoutPriority(1)
+            Spacer(minLength: 8)
+            trailing
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(minHeight: 48)
     }
+}
 
-    private func subtitle(_ state: ProviderState) -> String {
-        if let msg = status.testMessages[provider.id] { return msg }
-        switch state {
-        case .ready: return provider.kind == .grokBuild ? "Logged in" : "Key saved"
-        case .missing(let why), .error(let why): return why
-        case .unknown: return " "
+/// Hairline between rows, inset past the icon.
+struct SettingsDivider: View {
+    var inset: CGFloat = 14
+    var body: some View { Divider().padding(.leading, inset) }
+}
+
+/// A row that expands to show more rows (Models, Prices).
+struct SettingsDisclosure<Content: View>: View {
+    let title: String
+    var icon: String
+    @ViewBuilder var content: Content
+    #if DEBUG
+    @State private var open = UserDefaults.standard.bool(forKey: "debugExpand")
+    #else
+    @State private var open = false
+    #endif
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.22)) { open.toggle() }
+        } label: {
+            HStack(spacing: 12) {
+                IconBadge(symbol: icon, color: .secondary, size: 28)
+                Text(title).foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        if open {
+            VStack(spacing: 0) { content }
+                .padding(.leading, 40)
+                .transition(.opacity)
+        }
+    }
+}
+
+// MARK: - Use for
+
+struct SettingsTasksSection: View {
+    @Environment(ConfigStore.self) private var config
+    @Environment(ProviderStatus.self) private var status
+
+    var body: some View {
+        let enabled = config.enabled(ready: { status.state($0).isReady })
+        SettingsSection(title: "Use for") {
+            ForEach(Array(ImageTask.allCases.enumerated()), id: \.element) { i, task in
+                if i > 0 { SettingsDivider(inset: 54) }
+                SettingsRow(icon: task.icon, title: task.label, detail: hint(task)) {
+                    picker(task, enabled: task == .transparent ? enabled.filter(\.canTransparent) : enabled)
+                }
+            }
         }
     }
 
     @ViewBuilder
-    private func primaryButton(_ state: ProviderState) -> some View {
-        if provider.kind == .grokBuild {
-            if !status.grokInstalled {
-                Button("Install") { TerminalRunner.run("curl -fsSL https://x.ai/cli/install.sh | bash") }
-            } else if !state.isReady {
-                Button("Log In") { TerminalRunner.run("grok login") }
-            } else {
-                Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green).labelStyle(.iconOnly)
-            }
+    private func picker(_ task: ImageTask, enabled: [ProviderInfo]) -> some View {
+        let binding = config.taskBinding(task, "provider")
+        if enabled.isEmpty {
+            Text(task == .transparent ? "Needs OpenAI" : "No provider").foregroundStyle(.secondary)
         } else {
-            Button(state.isReady ? "Change Key" : "Add Key") { keyFor = provider }
+            Picker(task.label, selection: binding) {
+                ForEach(enabled) { p in
+                    Text(p.label).tag(p.id)
+                }
+                if !enabled.contains(where: { $0.id == binding.wrappedValue }) {
+                    Text(binding.wrappedValue.isEmpty ? "None" : ProviderStyle.label(binding.wrappedValue))
+                        .tag(binding.wrappedValue)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+    }
+
+    private func hint(_ task: ImageTask) -> String {
+        switch task {
+        case .draft: "Quick mockups"
+        case .final: "Finished images"
+        case .edit: "Change an image"
+        case .transparent: "Clear background"
         }
     }
 }
 
-private struct KeySheet: View {
-    let provider: ProviderInfo
-    @Environment(\.dismiss) private var dismiss
+// MARK: - Images
+
+struct SettingsImagesSection: View {
     @Environment(ConfigStore.self) private var config
-    @Environment(ProviderStatus.self) private var status
-    @Environment(Installer.self) private var installer
-    @State private var key = ""
-    @State private var saving = false
-    @State private var failed = false
+    @Environment(Catalog.self) private var catalog
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("\(provider.label) API key").font(.headline)
-            SecureField("Paste key", text: $key)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 360)
-                .onSubmit(save)
-            HStack {
-                if let url = provider.keyURL { Link("Get a key", destination: url).font(.callout) }
-                if failed { Text("Couldn't save").font(.callout).foregroundStyle(.red) }
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button("Save", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty || saving)
+        SettingsSection(title: "Images") {
+            SettingsRow(icon: "dial.medium", title: "Quality") {
+                Picker("Quality", selection: config.binding("quality")) {
+                    Text("Low").tag("low")
+                    Text("Medium").tag("medium")
+                    Text("High").tag("high")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
             }
-            Text("Stored in your Keychain.").font(.caption).foregroundStyle(.secondary)
+            SettingsDivider(inset: 54)
+            SettingsRow(icon: "aspectratio", title: "Size") {
+                Picker("Size", selection: config.binding("resolution")) {
+                    ForEach(["1K", "2K", "4K"], id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingsDivider(inset: 54)
+            SettingsRow(icon: "folder", title: "Save to", detail: config.string("output_dir")) {
+                Button("Choose…", action: chooseFolder)
+            }
+            SettingsDivider(inset: 54)
+            SettingsDisclosure(title: "Models", icon: "cpu") {
+                modelRow("OpenAI", key: "openai_model", provider: "openai")
+                SettingsDivider()
+                modelRow("OpenAI edits", key: "openai_edit_model", provider: "openai")
+                SettingsDivider()
+                modelRow("xAI API", key: "xai_model", provider: "xai")
+                SettingsDivider()
+                modelRow("Gemini", key: "gemini_model", provider: "gemini")
+            }
+            SettingsDivider(inset: 54)
+            SettingsPricesSection()
         }
-        .padding(20)
     }
 
-    private func save() {
-        saving = true
-        Task {
-            let ok = await Keychain.save(key, service: provider.keychainService, label: provider.label)
-            saving = false
-            guard ok else { failed = true; return }
-            await status.refresh(config.providers)
-            dismiss()
-            await status.test(provider, installer: installer)
+    private func modelRow(_ title: String, key: String, provider: String) -> some View {
+        let binding = config.binding(key)
+        let models = catalog.entry(provider)?.models ?? []
+        return SettingsRow(title: title) {
+            HStack(spacing: 4) {
+                TextField(title, text: binding)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout.monospaced())
+                    .labelsHidden()
+                    .frame(width: 230)
+                if !models.isEmpty {
+                    Menu {
+                        ForEach(models, id: \.self) { m in
+                            Button { binding.wrappedValue = m } label: {
+                                if m == binding.wrappedValue { Label(m, systemImage: "checkmark") } else { Text(m) }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.up.chevron.down")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Suggestions")
+                }
+            }
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.directoryURL = URL(fileURLWithPath: (config.string("output_dir") as NSString).expandingTildeInPath)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        config.set("output_dir", (url.path as NSString).abbreviatingWithTildeInPath)
+    }
+}
+
+// MARK: - Prices
+
+struct SettingsPricesSection: View {
+    @Environment(ConfigStore.self) private var config
+
+    var body: some View {
+        SettingsDisclosure(title: "Prices", icon: "dollarsign") {
+                Text("OpenAI · per 1M tokens")
+                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.top, 4)
+                priceRow("Text in", "openai", "text_in")
+                SettingsDivider()
+                priceRow("Image in", "openai", "image_in")
+                SettingsDivider()
+                priceRow("Image out", "openai", "image_out")
+                Text("Per image")
+                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.top, 12)
+                priceRow("xAI API", "xai", "per_image")
+                SettingsDivider()
+                priceRow("Gemini", "gemini", "per_image")
+                ForEach(config.customProviders) { p in
+                    SettingsDivider()
+                    priceRow(p.label, p.id, "per_image")
+                }
+                SettingsDivider()
+                HStack {
+                    Spacer()
+                    Button("Reset to Defaults") { config.resetPrices() }
+                        .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+        }
+    }
+
+    private func priceRow(_ title: String, _ provider: String, _ key: String) -> some View {
+        SettingsRow(title: title) {
+            HStack(spacing: 4) {
+                Text("$").foregroundStyle(.secondary)
+                TextField(title, value: config.priceBinding(provider, key), format: .number.precision(.fractionLength(0...4)))
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .labelsHidden()
+                    .frame(width: 90)
+            }
         }
     }
 }
 
-private struct CustomProviderSheet: View {
-    let original: ProviderInfo
-    @Environment(\.dismiss) private var dismiss
-    @Environment(ConfigStore.self) private var config
-    @Environment(ProviderStatus.self) private var status
-    @State private var id = ""
-    @State private var label = ""
-    @State private var baseURL = ""
-    @State private var model = ""
-    @State private var editModel = ""
-    @State private var key = ""
+// MARK: - About
 
-    private var isNew: Bool { original.id.isEmpty }
-    private var idValid: Bool {
-        id.range(of: #"^[a-z][a-z0-9-]{1,30}$"#, options: .regularExpression) != nil
-            && !["openai", "grok", "xai", "gemini", "draft", "final", "edit", "transparent", "check", "models", "config",
-                 "providers", "provider", "version", "help", "log", "set-key", "delete-key"].contains(id)
-            && (!isNew || config.provider(id) == nil)
-    }
-    private var valid: Bool { idValid && URL(string: baseURL)?.scheme?.hasPrefix("http") == true && !model.isEmpty }
+struct SettingsAboutSection: View {
+    @Environment(Updater.self) private var updater
+    @Environment(Catalog.self) private var catalog
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(isNew ? "Add Provider" : "Edit \(original.label)").font(.headline)
-            Form {
-                TextField("Name", text: $id, prompt: Text("together"))
-                    .disabled(!isNew)
-                TextField("Label", text: $label, prompt: Text("Together AI"))
-                TextField("Base URL", text: $baseURL, prompt: Text("https://api.example.com/v1"))
-                TextField("Model", text: $model, prompt: Text("model-id"))
-                TextField("Edit model", text: $editModel, prompt: Text("Optional"))
-                SecureField("API key", text: $key, prompt: Text(isNew ? "Optional" : "Unchanged"))
-            }
-            .formStyle(.columns)
-            .frame(width: 420)
-            Text("OpenAI-compatible images API.").font(.caption).foregroundStyle(.secondary)
-            HStack {
+        SettingsSection(title: "About") {
+            HStack(spacing: 12) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("ImageGenKit").font(.body.weight(.semibold))
+                    Text("Version \(updater.currentVersion)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                Button(isNew ? "Add" : "Save", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!valid)
+                updateControl
             }
-        }
-        .padding(20)
-        .onAppear {
-            id = original.id
-            label = original.label
-            baseURL = original.baseURL ?? ""
-            model = original.model ?? ""
-            editModel = original.editModel ?? ""
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            SettingsDivider()
+            HStack {
+                Link(destination: Updater.homepage) {
+                    Label("GitHub", systemImage: "arrow.up.right.square")
+                }
+                Spacer()
+                if !catalog.updated.isEmpty {
+                    Text("Providers updated \(catalog.updated)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
         }
     }
 
-    private func save() {
-        let p = ProviderInfo(id: id, label: label.isEmpty ? id : label, kind: .compatible, baseURL: baseURL, model: model,
-                             editModel: editModel.isEmpty ? nil : editModel, keyURL: nil, builtin: false)
-        config.saveCustomProvider(p)
-        let key = key
-        Task {
-            if !key.isEmpty { _ = await Keychain.save(key, service: p.keychainService, label: p.label) }
-            await status.refresh(config.providers)
+    @ViewBuilder
+    private var updateControl: some View {
+        switch updater.state {
+        case .idle:
+            Button("Check for Updates") { Task { await updater.check() } }
+        case .checking:
+            ProgressView().controlSize(.small)
+        case .upToDate:
+            HStack(spacing: 8) {
+                Label("Up to date", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green).font(.callout)
+                Button { Task { await updater.check() } } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless)
+                    .help("Check again")
+            }
+        case .available(let v):
+            Button("Update to \(v)") { Task { await updater.install() } }
+                .buttonStyle(PrimaryButtonStyle())
+        case .downloading, .installing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(updater.state == .downloading ? "Downloading…" : "Installing…").foregroundStyle(.secondary)
+            }
+        case .failed(let message):
+            HStack(spacing: 8) {
+                Text(message).font(.caption).foregroundStyle(.red).lineLimit(1)
+                Button("Retry") { Task { await updater.check() } }
+            }
         }
-        dismiss()
     }
 }

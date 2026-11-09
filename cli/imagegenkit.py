@@ -32,8 +32,9 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 HOMEPAGE = "https://github.com/strics-at/imagegenkit"
+GITHUB_REPO = "strics-at/imagegenkit"
 
 CONFIG_DIR = Path.home() / ".config" / "imagegenkit"
 LEGACY_DIR = Path.home() / ".config" / "imagegen"  # used by the old `imagegen` CLI
@@ -90,7 +91,7 @@ BUILTIN_PROVIDERS = {
 }
 CAN_TRANSPARENT = {"openai"}  # provider types that return real alpha
 SUBSCRIPTION_TYPES = {"grok-build", "codex-cli"}  # log in instead of an API key
-RESERVED = set(TASKS) | {"usage", "check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
+RESERVED = set(TASKS) | {"usage", "update", "check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
                          "help", "log"}
 
 MIME_BY_EXT = {
@@ -1301,6 +1302,72 @@ def cmd_usage(a, cfg):
         print("limits warn only (stop_paid is off)")
 
 
+def version_tuple(v):
+    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", str(v).lstrip("vV")))
+
+
+def self_update(force_check=True):
+    """Install the CLI (and ImageGenKit-managed skills) from the latest GitHub release. Returns a short message."""
+    ua = {"User-Agent": "imagegenkit", "Accept": "application/vnd.github+json"}
+    req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", headers=ua)
+    with urllib.request.urlopen(req, timeout=8) as r:
+        tag = json.loads(r.read())["tag_name"]
+
+    def fetch(path):
+        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{tag}/{path}"
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "imagegenkit"}), timeout=20) as r:
+            return r.read()
+
+    code = fetch("cli/imagegenkit.py")
+    m = re.search(rb'^VERSION = "([^"]+)"', code, re.M)
+    if not m:
+        return f"latest release {tag} has no CLI version"
+    remote = m.group(1).decode()
+    if version_tuple(remote) <= version_tuple(VERSION):
+        return f"up to date ({VERSION})"
+    compile(code, "imagegenkit.py", "exec")  # never install something that doesn't parse
+    me = Path(os.path.realpath(__file__))
+    tmp = me.with_name(me.name + ".new")
+    tmp.write_bytes(code)
+    tmp.chmod(0o755)
+    tmp.replace(me)
+    try:
+        skill = fetch("skill/SKILL.md")
+        for home in (Path.home() / ".claude", Path.home() / ".codex"):
+            target = home / "skills" / "imagegenkit" / "SKILL.md"
+            if target.exists() and "managed-by: ImageGenKit" in target.read_text(errors="ignore"):
+                target.write_bytes(skill)
+    except (OSError, urllib.error.URLError):
+        pass
+    return f"updated {VERSION} -> {remote}"
+
+
+def auto_update(cfg):
+    """Once a day, after a normal run: quietly update from the latest release (config auto_update: false turns it off)."""
+    if cfg.get("auto_update") is False or os.environ.get("IMAGEGENKIT_NO_UPDATE"):
+        return
+    stamp = CONFIG_DIR / ".update-check"
+    try:
+        if stamp.exists() and time.time() - stamp.stat().st_mtime < 86400:
+            return
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        stamp.touch()
+        msg = self_update()
+        if msg.startswith("updated"):
+            log(f"imagegenkit: {msg}")
+    except Exception:  # offline, rate limited, private repo, read-only install: try again tomorrow
+        pass
+
+
+def cmd_update(a, cfg):
+    try:
+        print(self_update())
+    except urllib.error.HTTPError as e:
+        die(f"couldn't check GitHub (HTTP {e.code}). {HOMEPAGE}/releases")
+    except (urllib.error.URLError, OSError) as e:
+        die(f"couldn't update: {e}")
+
+
 def set_dotted(data, dotted, value):
     keys = dotted.split(".")
     node = data
@@ -1420,6 +1487,8 @@ def main():
     p = sub.add_parser("usage", help="this month's estimated spend, images and limits")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_usage)
+    p = sub.add_parser("update", help="update imagegenkit (and its skills) from the latest GitHub release")
+    p.set_defaults(fn=cmd_update)
     p = sub.add_parser("version", help="print the version")
     p.set_defaults(fn=lambda a, c: print(VERSION))
 
@@ -1428,6 +1497,8 @@ def main():
         die("-n must be >= 1")
     try:
         a.fn(a, cfg)
+        if a.fn in (run_task, run_provider) and not getattr(a, "dry_run", False):
+            auto_update(cfg)  # after the images are saved and printed
     except ApiError as e:
         die(str(e))
     except Unavailable as e:

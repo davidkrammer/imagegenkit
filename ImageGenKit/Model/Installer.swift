@@ -54,6 +54,7 @@ final class Installer {
     let shareFolder = Paths.home.appending(path: ".local/share/imagegenkit")
     let legacyLink = Paths.home.appending(path: ".local/bin/imagegen")
     private(set) var legacyFound = false
+    @ObservationIgnored private var didAutoUpdate = false
 
     var bundledVersion: String { bundledCLI.flatMap { Self.version(inScript: $0) } ?? "?" }
     var skillVersion: String { bundledSkill.flatMap { Self.version(inSkill: $0) } ?? "?" }
@@ -86,6 +87,7 @@ final class Installer {
         }
         legacyFound = FileManager.default.fileExists(atPath: legacyLink.path)
             || (try? FileManager.default.destinationOfSymbolicLink(atPath: legacyLink.path)) != nil
+        await autoUpdateOnce()
     }
 
     private func cliState() -> InstallState {
@@ -115,6 +117,17 @@ final class Installer {
             return fm.fileExists(atPath: url.path) ? url : nil
         }
         return fm.fileExists(atPath: binLink.path) ? binLink : nil
+    }
+
+    /// Once per launch: bring the installed CLI and ImageGenKit-managed skills up to the versions in this app.
+    /// Only touches things ImageGenKit installed (custom files are left alone).
+    private func autoUpdateOnce() async {
+        guard !didAutoUpdate else { return }
+        didAutoUpdate = true
+        if case .outdated = cli { await installCLI() }
+        for t in SkillTarget.allCases {
+            if case .outdated = skills[t] ?? .checking { await installSkill(t) }
+        }
     }
 
     // MARK: Actions

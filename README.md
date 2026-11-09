@@ -28,7 +28,7 @@
 - **Monthly limits.** Set a spend or image limit. You get a notice at 80 % and 100 %, and if you choose "Stop paid images", paid providers pause until next month while your subscriptions keep working, for you and for your agents.
 - **Settings per provider.** Model, quality, size, background and format for each provider, plus "Use for": which provider makes drafts, finals, edits and transparent PNGs. If one isn't set up, the next one in your list is used.
 - **For AI agents.** Installs the `imagegenkit` command and a skill for Claude Code and Codex, so your agent makes images that follow your settings.
-- **Stays up to date.** The app updates itself from GitHub, and the provider list updates without a new app version.
+- **Stays up to date.** The app updates itself from GitHub and keeps the `imagegenkit` command and agent skills current. Without the app, the command checks for a new release once a day and updates itself (`imagegenkit update` does it now; set `"auto_update": false` in the config to turn it off). The provider list updates without a new version.
 
 | Gallery | Generate |
 |---|---|
@@ -79,6 +79,7 @@ imagegenkit codex "..."                        # one provider directly (openai, 
 imagegenkit providers                          # what's set up, order, task routing
 imagegenkit check                              # live check of keys and logins
 imagegenkit usage                              # this month's spend, images and limits
+imagegenkit update                             # update the command and skills from the latest release
 imagegenkit config set provider_defaults.openai.quality high
 ```
 

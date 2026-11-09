@@ -16,14 +16,16 @@ struct GenerateView: View {
     @AppStorage("generate.prompt") private var prompt = ""
     @AppStorage("generate.provider") private var providerID = ""
     @AppStorage("generate.aspect") private var aspect = GenerateSpec.auto
-    @AppStorage("generate.size") private var size = "2K"
     @AppStorage("generate.count") private var count = 1
-    @AppStorage("generate.quality") private var quality = "medium"
-    @AppStorage("generate.background") private var background = "auto"
-    @AppStorage("generate.format") private var format = "png"
     @AppStorage("generate.compression") private var compression = 85.0
     @AppStorage("generate.moderation") private var moderation = "auto"
-    @AppStorage("generate.models") private var modelsJSON = "{}"
+    // Per provider: prefilled from Settings › Images, edits kept for this app session (GenerateSession).
+    @State private var size = "2K"
+    @State private var quality = "medium"
+    @State private var background = "auto"
+    @State private var format = "png"
+    @State private var model = ""
+    @State private var loadedFor = ""
     @State private var showMore = false
 
     @State private var refs: [URL] = []
@@ -59,22 +61,27 @@ struct GenerateView: View {
         provider != nil && !running && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var models: [String: String] {
-        (try? JSONDecoder().decode([String: String].self, from: Data(modelsJSON.utf8))) ?? [:]
-    }
-
-    private var modelBinding: Binding<String> {
-        Binding(get: { models[provider?.id ?? ""] ?? "" }, set: { value in
-            guard let id = provider?.id else { return }
-            var m = models
-            m[id] = value.isEmpty ? nil : value
-            modelsJSON = (try? String(decoding: JSONEncoder().encode(m), as: UTF8.self)) ?? "{}"
-        })
-    }
-
     private var options: GenerateOptions {
         GenerateOptions(aspect: aspect, size: size, count: count, quality: quality, background: background,
-                        format: format, compression: compression, moderation: moderation, model: modelBinding.wrappedValue)
+                        format: format, compression: compression, moderation: moderation, model: model)
+    }
+
+    /// Loads a provider's options: this session's edits, else its saved defaults.
+    private func load(_ p: ProviderInfo?) {
+        guard let p, p.id != loadedFor else { return }
+        let edited = GenerateSession.values[p.id] ?? [:]
+        size = edited["resolution"] ?? GenerateSpec.initial(p, "resolution", config: config)
+        quality = edited["quality"] ?? GenerateSpec.initial(p, "quality", config: config)
+        background = edited["background"] ?? GenerateSpec.initial(p, "background", config: config)
+        format = edited["format"] ?? GenerateSpec.initial(p, "format", config: config)
+        model = edited["model"] ?? ""
+        loadedFor = p.id
+    }
+
+    private func remember() {
+        guard !loadedFor.isEmpty else { return }
+        GenerateSession.values[loadedFor] = ["resolution": size, "quality": quality, "background": background,
+                                             "format": format, "model": model]
     }
 
     // MARK: Body
@@ -105,6 +112,8 @@ struct GenerateView: View {
         .background(Theme.background)
         .animation(.smooth(duration: 0.3), value: phase)
         .animation(.smooth(duration: 0.25), value: refs)
+        .onChange(of: provider?.id, initial: true) { load(provider) }
+        .onChange(of: [size, quality, background, format, model]) { remember() }
         .task {
             if config.providers.contains(where: { status.state($0.id) == .unknown }) {
                 await status.refresh(config.providers)
@@ -268,31 +277,41 @@ struct GenerateView: View {
     }
 
     private func moreOptions(_ p: ProviderInfo) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if p.kind == .openai {
+        let qualities = GenerateSpec.qualities(p.kind)
+        let backgrounds = GenerateSpec.backgrounds(p.kind)
+        let formats = GenerateSpec.formats(p.kind)
+        let openai = p.kind == .openai
+        return VStack(alignment: .leading, spacing: 0) {
+            if !qualities.isEmpty {
                 row("Quality") {
-                    GenerateSegmented(options: GenerateSpec.qualities, selection: $quality, label: \.capitalized)
+                    GenerateSegmented(options: ["auto"] + qualities, selection: $quality, label: \.capitalized)
                 }
-                divider
+            }
+            if !backgrounds.isEmpty {
+                if !qualities.isEmpty { divider }
                 row("Background") {
-                    GenerateSegmented(options: GenerateSpec.backgrounds, selection: Binding(get: { background }, set: {
+                    GenerateSegmented(options: backgrounds, selection: Binding(get: { background }, set: {
                         background = $0
                         if $0 == "transparent" && format == "jpeg" { format = "png" }
                     }), label: \.capitalized)
                 }
-                divider
+            }
+            if !formats.isEmpty {
+                if !qualities.isEmpty || !backgrounds.isEmpty { divider }
                 row("Format") {
                     HStack(spacing: 14) {
-                        GenerateSegmented(options: GenerateSpec.formats, selection: Binding(get: { format }, set: {
+                        GenerateSegmented(options: formats, selection: Binding(get: { format }, set: {
                             format = $0
                             if $0 == "jpeg" && background == "transparent" { background = "auto" }
-                        }), label: { $0 == "jpeg" ? "JPEG" : $0 == "webp" ? "WebP" : "PNG" })
-                        if format != "png" {
+                        }), label: GenerateSpec.formatLabel)
+                        if openai && format != "png" {
                             Slider(value: $compression, in: 0...100, step: 5).frame(width: 110)
                             Text("\(Int(compression))%").monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .leading)
                         }
                     }
                 }
+            }
+            if openai {
                 divider
                 row("Moderation") {
                     GenerateSegmented(options: GenerateSpec.moderations, selection: $moderation, label: \.capitalized)
@@ -301,9 +320,11 @@ struct GenerateView: View {
                     divider
                     row("Mask") { maskControl }
                 }
-                divider
             }
-            row("Model") { modelField(p) }
+            if GenerateSpec.hasModel(p.kind) {
+                if !qualities.isEmpty || !backgrounds.isEmpty || !formats.isEmpty { divider }
+                row("Model") { modelField(p) }
+            }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 6)
@@ -327,7 +348,7 @@ struct GenerateView: View {
         let suggestions = GenerateSpec.modelSuggestions(p, catalog: catalog, config: config)
         let placeholder = GenerateSpec.defaultModel(p, config: config, editing: !refs.isEmpty)
         return HStack(spacing: 6) {
-            TextField("Model", text: modelBinding, prompt: Text(placeholder.isEmpty ? "Default" : placeholder))
+            TextField("Model", text: $model, prompt: Text(placeholder.isEmpty ? "Default" : placeholder))
                 .textFieldStyle(.plain)
                 .font(.system(.callout, design: .monospaced))
                 .padding(.horizontal, 12)
@@ -335,9 +356,9 @@ struct GenerateView: View {
                 .background(Theme.well, in: Capsule())
             if !suggestions.isEmpty {
                 Menu {
-                    Button("Default") { modelBinding.wrappedValue = "" }
+                    Button("Default") { model = "" }
                     Divider()
-                    ForEach(suggestions, id: \.self) { m in Button(m) { modelBinding.wrappedValue = m } }
+                    ForEach(suggestions, id: \.self) { m in Button(m) { model = m } }
                 } label: {
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
                         .frame(width: 30, height: 30)
@@ -463,7 +484,8 @@ struct GenerateView: View {
         var parts = [GenerateSpec.aspects(p.kind).contains(aspect) ? aspect : GenerateSpec.auto]
         let sizes = GenerateSpec.sizes(p.kind)
         if !sizes.isEmpty { parts.append(sizes.contains(size) ? size : sizes[min(1, sizes.count - 1)]) }
-        if p.kind == .openai { parts.append(quality.capitalized) }
+        if GenerateSpec.qualities(p.kind).contains(quality) { parts.append(quality.capitalized) }
+        if background == "transparent", GenerateSpec.backgrounds(p.kind).contains(background) { parts.append("Transparent") }
         parts.append(count == 1 ? "1 image" : "\(count) images")
         return parts.joined(separator: " · ")
     }
@@ -541,6 +563,11 @@ struct GenerateView: View {
         }
     }
     #endif
+}
+
+/// Options the user changed in the Generate panel, per provider id, until the app quits.
+enum GenerateSession {
+    static var values: [String: [String: String]] = [:]
 }
 
 /// DEBUG-only: opens GenerateView at launch with `-debugGenerate YES` (for screenshots).

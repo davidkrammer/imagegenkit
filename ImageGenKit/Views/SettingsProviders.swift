@@ -111,7 +111,7 @@ struct SettingsProviderRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(provider.label).font(.body.weight(.medium))
-                    if entry?.beta == true { Pill(text: "Untested") }
+                    if entry?.tested == false { Pill(text: "Untested") }
                 }
                 Text(subtitle(state))
                     .font(.caption)
@@ -129,6 +129,8 @@ struct SettingsProviderRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }
+
+    private var installed: Bool { provider.kind == .codex ? status.codexInstalled : status.grokInstalled }
 
     private func isError(_ state: ProviderState) -> Bool {
         if case .error = state { return true }
@@ -154,7 +156,7 @@ struct SettingsProviderRow: View {
                 .foregroundStyle(.green)
                 .help("Ready")
         } else if state != .unknown {
-            Button(provider.needsKey ? "Add Key" : (status.grokInstalled ? "Log In" : "Set Up")) {
+            Button(provider.needsKey ? "Add Key" : (installed ? "Log In" : "Set Up")) {
                 sheet = .setup(provider.id)
             }
         }
@@ -169,13 +171,15 @@ struct SettingsProviderRow: View {
             if provider.needsKey {
                 Button("Change Key…", systemImage: "key") { sheet = .setup(provider.id) }
             } else {
-                Button("Log In Again", systemImage: "person.crop.circle") { TerminalRunner.run("grok login") }
+                if let login = SetupAction.command(provider.kind == .codex ? "login-codex" : "login-grok") {
+                    Button("Log In Again", systemImage: "person.crop.circle") { TerminalRunner.run(login) }
+                }
             }
             if !provider.builtin && provider.catalogID == nil {
                 Button("Edit…", systemImage: "pencil") { sheet = .custom(provider.id) }
             }
             if let url = provider.keyURL ?? entry?.keyURL {
-                Button(provider.needsKey ? "Get Key Page" : "Open grok.com", systemImage: "safari") { Actions.open(url) }
+                Button(provider.needsKey ? "Get Key Page" : "Open \(url.host() ?? "Website")", systemImage: "safari") { Actions.open(url) }
             }
             Divider()
             Button(role: .destructive) { removing = provider } label: { DestructiveLabel(title: "Remove") }

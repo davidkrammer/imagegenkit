@@ -720,20 +720,35 @@ def month_usage(cfg):
     return cost, images, runs
 
 
+class LimitReached(Unavailable):
+    """A monthly limit with 'stop_paid' blocks this (paid) provider."""
+
+
+def limit_values(cfg):
+    """(spend limit, image limit, stop_paid) from config `limits`, ignoring values that aren't positive numbers."""
+    lim = cfg.get("limits")
+    lim = lim if isinstance(lim, dict) else {}
+
+    def num(v):
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return None
+        return v if v > 0 else None
+    return num(lim.get("monthly_cost")), num(lim.get("monthly_images")), lim.get("stop_paid") is True
+
+
 def check_limits(cfg, spec):
-    """With 'stop_paid', refuse paid providers past the spend limit and everything past the image limit."""
-    lim = cfg.get("limits") or {}
-    if not lim.get("stop_paid"):
-        return
-    cost_limit, image_limit = lim.get("monthly_cost"), lim.get("monthly_images")
-    if not cost_limit and not image_limit:
+    """With 'stop_paid', refuse paid providers once the spend or image limit is reached. Subscriptions keep working
+    (same as the app: "Paid images are paused until next month. Subscriptions still work.")."""
+    cost_limit, image_limit, stop = limit_values(cfg)
+    if not stop or spec["type"] in SUBSCRIPTION_TYPES or not (cost_limit or image_limit):
         return
     cost, images, _ = month_usage(cfg)
+    if cost_limit and cost >= cost_limit:
+        raise LimitReached(f"monthly spend limit reached (${cost:.2f} of ${cost_limit:.2f})")
     if image_limit and images >= image_limit:
-        raise Unavailable(f"monthly image limit reached ({images} of {image_limit}). Change it in ImageGenKit › Settings › Limits")
-    if cost_limit and spec["type"] not in SUBSCRIPTION_TYPES and cost >= cost_limit:
-        raise Unavailable(f"monthly spend limit reached (${cost:.2f} of ${cost_limit:.2f}). Subscriptions still work; "
-                          "change it in ImageGenKit › Settings › Limits")
+        raise LimitReached(f"monthly image limit reached ({images} of {image_limit:g})")
 
 
 # ---------- providers ----------
@@ -944,7 +959,7 @@ def run_grok(a, cfg, spec, task):
         die(f"Grok timed out after {TIMEOUT}s")
     files = sorted(GROK_HOME.glob(f"sessions/*/{sid}/images/*"), key=lambda f: f.stat().st_mtime)
     if not files:
-        said = (r.stdout.strip() + " " + r.stderr.strip()).strip()[-1000:]
+        said = " ".join((r.stdout + " " + r.stderr).split())[-400:]
         if r.returncode and re.search(r"log ?in|auth|unauthori", said, re.I):
             raise Unavailable(f"not logged in (run: grok login). Grok said: {said}")
         die(f"Grok returned no image (exit {r.returncode}). Grok said: {said or '(nothing)'}")
@@ -1151,12 +1166,17 @@ def api_message(spec, e):
     return f"{spec['label']}: " + (f"{hint} (HTTP {e.status}: {e.message[:300]})" if hint else str(e)[:400])
 
 
+LIMIT_HINT = "Paid images are paused until next month; subscriptions still work. Change it in ImageGenKit › Settings › Limits"
+
+
 def run_provider(a, cfg):
     spec = all_providers(cfg)[a.cmd]
     try:
         if not a.dry_run:
             check_limits(cfg, spec)
         RUNNERS[spec["type"]](a, cfg, spec, None)
+    except LimitReached as e:
+        die(f"{spec['name']}: {e}. {LIMIT_HINT}")
     except Unavailable as e:
         die(f"{spec['name']}: {e}")
     except ApiError as e:
@@ -1177,7 +1197,7 @@ def run_task(a, cfg):
             candidates.append(name)
     if a.provider:
         candidates = [a.provider] if a.provider in provs else die(f"unknown provider {a.provider}")
-    skipped = []
+    skipped, limit = [], None
     for name in candidates:
         spec = provs[name]
         if task == "transparent" and spec["type"] not in CAN_TRANSPARENT:
@@ -1199,8 +1219,9 @@ def run_task(a, cfg):
         try:
             if not a.dry_run:
                 check_limits(cfg, spec)
-        except Unavailable as e:
-            skipped.append(f"{name}: {e}")
+        except LimitReached as e:
+            limit = str(e)
+            skipped.append(f"{name}: monthly limit")
             continue
         log(f"{task} -> {name}" + (f" (skipped {'; '.join(skipped)})" if skipped else ""))
         try:
@@ -1211,6 +1232,8 @@ def run_task(a, cfg):
             if e.status not in (401, 403):
                 die(api_message(spec, e))
             skipped.append(f"{name}: {e}")
+    if limit:
+        die(f"{limit}. {LIMIT_HINT}")
     die(f"no provider ready for '{task}' ({'; '.join(skipped) or 'none configured'}). "
         "Set one up in the ImageGenKit app, or: imagegenkit set-key openai")
 
@@ -1390,7 +1413,9 @@ def cmd_models(a, cfg):
 
 def cmd_usage(a, cfg):
     cost, images, runs = month_usage(cfg)
-    lim = cfg.get("limits") or {}
+    cost_limit, image_limit, stop = limit_values(cfg)
+    lim = {k: v for k, v in (("monthly_cost", cost_limit), ("monthly_images", image_limit and int(image_limit)),
+                             ("stop_paid", stop)) if v}
     out = {"month": dt.datetime.now().strftime("%Y-%m"), "cost": round(cost, 4), "images": images, "runs": runs,
            "limits": lim}
     if a.json:
@@ -1401,7 +1426,9 @@ def cmd_usage(a, cfg):
         print(f"spend limit  ${lim['monthly_cost']:.2f}  ({cost / lim['monthly_cost']:.0%} used)")
     if lim.get("monthly_images"):
         print(f"image limit  {lim['monthly_images']}  ({images / lim['monthly_images']:.0%} used)")
-    if lim and not lim.get("stop_paid"):
+    if lim.get("stop_paid"):
+        print("when reached: paid images pause, subscriptions keep working")
+    elif lim:
         print("limits warn only (stop_paid is off)")
 
 

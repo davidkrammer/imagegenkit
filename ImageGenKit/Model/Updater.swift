@@ -16,6 +16,8 @@ final class Updater {
     static let repo = "davidkrammer/imagegenkit"
     static let api = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
     static let homepage = URL(string: "https://github.com/\(repo)")!
+    /// GitHub Sponsors: one-time or monthly, any amount.
+    static let donate = URL(string: "https://github.com/sponsors/davidkrammer")!
 
     var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
     var updateAvailable: Bool { if case .available = state { true } else { false } }

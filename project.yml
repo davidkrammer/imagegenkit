@@ -12,7 +12,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_IDENTITY: '-'
     ENABLE_APP_SANDBOX: NO
-    ENABLE_HARDENED_RUNTIME: NO
+    ENABLE_HARDENED_RUNTIME: YES
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: '1.0.0'
     CURRENT_PROJECT_VERSION: '1'
@@ -41,7 +41,14 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: ImageGenKit
         INFOPLIST_KEY_NSDocumentsFolderUsageDescription: Grok Build, which makes images with your Grok subscription, may look at files in Documents.
         INFOPLIST_KEY_NSDesktopFolderUsageDescription: To save and open images you choose on your Desktop.
+        INFOPLIST_KEY_NSDownloadsFolderUsageDescription: To save and open images you choose in Downloads.
         INFOPLIST_KEY_NSHumanReadableCopyright: Copyright 2026 STRICS IT GmbH
+      configs:
+        # Release builds are signed with Developer ID and notarized through Xcode › Organizer › Direct Distribution.
+        # Debug builds stay ad-hoc signed, so anyone can build from source without a team.
+        Release:
+          DEVELOPMENT_TEAM: J84L3TWP7T
+          CODE_SIGN_IDENTITY: Apple Development
     scheme:
       testTargets: [ImageGenKitTests]
   ImageGenKitTests:

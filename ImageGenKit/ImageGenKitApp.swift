@@ -50,6 +50,9 @@ struct ImageGenKitApp: App {
             }
             CommandGroup(replacing: .help) {
                 Button("Welcome Tour…") { OnboardingStore.show() }
+                Divider()
+                Link("ImageGenKit on GitHub", destination: Updater.homepage)
+                Link("Donate…", destination: Updater.donate)
             }
         }
 

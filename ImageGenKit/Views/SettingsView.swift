@@ -367,6 +367,10 @@ struct SettingsAboutSection: View {
                 Link(destination: Updater.homepage) {
                     Label("GitHub", systemImage: "arrow.up.right.square")
                 }
+                Link(destination: Updater.donate) {
+                    Label("Donate", systemImage: "heart")
+                }
+                .help("ImageGenKit is free. A donation helps keep it going.")
             }
             .buttonStyle(.link)
             .font(.callout)

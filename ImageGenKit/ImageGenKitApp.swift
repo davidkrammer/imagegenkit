@@ -37,6 +37,9 @@ struct ImageGenKitApp: App {
                 .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1120, height: 740)
+        // Always open the main window at launch, even if it was closed (menu bar only) when the app last quit.
+        // Its size and position are still remembered.
+        .restorationBehavior(.disabled)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button("Reload") {

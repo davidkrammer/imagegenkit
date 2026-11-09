@@ -107,19 +107,19 @@ extension ConfigStore {
 @MainActor
 enum LimitNotifier {
     private static let key = "limitNotified"  // "2026-11:warning" / "2026-11:reached"
+    private static var queued: Set<String> = []
 
     static func requestPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        // Async API: the callback version runs off the main thread and traps under Swift 6 main-actor checks.
+        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
     }
 
     static func check(_ usage: MonthUsage, limits: UsageLimits) {
         let level = limits.level(usage)
         guard level >= .warning else { return }
-        let month = usage.start.formatted(.iso8601.year().month())
-        let stamp = "\(month):\(level == .reached ? "reached" : "warning")"
-        let done = UserDefaults.standard.stringArray(forKey: key) ?? []
-        guard !done.contains(stamp) else { return }
-        UserDefaults.standard.set(done.suffix(10) + [stamp], forKey: key)
+        let stamp = "\(monthKey(usage.start)):\(level == .reached ? "reached" : "warning")"
+        guard !queued.contains(stamp), !(UserDefaults.standard.stringArray(forKey: key) ?? []).contains(stamp) else { return }
+        queued.insert(stamp)
 
         let content = UNMutableNotificationContent()
         if level == .reached {
@@ -130,7 +130,18 @@ enum LimitNotifier {
             content.title = "80 % of your monthly limit"
             content.body = summary(usage, limits)
         }
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: stamp, content: content, trigger: nil))
+        let request = UNNotificationRequest(identifier: stamp, content: content, trigger: nil)
+        Task { @MainActor in
+            let done = UserDefaults.standard.stringArray(forKey: key) ?? []
+            UserDefaults.standard.set(Array(done.suffix(10)) + [stamp], forKey: key)  // Array: a slice isn't a plist type
+            try? await UNUserNotificationCenter.current().add(request)
+        }
+    }
+
+    /// "2026-11" in the local calendar (ISO formatting would use UTC, so Nov 1 00:00 in Vienna became "2026-10").
+    nonisolated static func monthKey(_ date: Date, calendar: Calendar = .current) -> String {
+        let c = calendar.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", c.year ?? 0, c.month ?? 0)
     }
 
     static func summary(_ u: MonthUsage, _ l: UsageLimits) -> String {

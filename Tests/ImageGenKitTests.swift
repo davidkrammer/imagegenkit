@@ -152,6 +152,13 @@ struct LimitsTests {
         c.setLimits(UsageLimits(monthlyCost: nil, monthlyImages: nil, stopPaid: true))
         #expect(ConfigStore(url: url).user["limits"] == nil)
     }
+
+    @Test func monthKeyUsesLocalCalendar() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/Vienna")!
+        let nov1 = cal.date(from: DateComponents(year: 2026, month: 11, day: 1))!  // Oct 31 23:00 UTC
+        #expect(LimitNotifier.monthKey(nov1, calendar: cal) == "2026-11")
+    }
 }
 
 @MainActor

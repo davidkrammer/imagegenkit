@@ -9,8 +9,19 @@ enum MenuBarIcon {
     static func image(_ level: UsageLimits.Level) -> NSImage {
         let key: UsageLimits.Level = level >= .warning ? level : .none
         if let cached = cache[key] { return cached }
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: true) { rect in
+        let image = render(dot: key == .reached ? .filled : key == .warning ? .ring : nil)
+        image.isTemplate = true
+        image.accessibilityDescription = "ImageGenKit"
+        cache[key] = image
+        return image
+    }
+
+    nonisolated enum Dot { case ring, filled }
+
+    /// Built outside the main actor: AppKit may call the drawing handler from any thread, and a
+    /// main-actor closure there traps.
+    nonisolated private static func render(dot: Dot?) -> NSImage {
+        NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
             let frame = rect.insetBy(dx: 0.5, dy: 0.5)
             ctx.setFillColor(NSColor.black.withAlphaComponent(0.75).cgColor)
@@ -19,27 +30,22 @@ enum MenuBarIcon {
             ctx.setFillColor(NSColor.black.cgColor)
             ctx.addPath(AppGlyphShape(part: .sparkles).path(in: frame).cgPath)
             ctx.fillPath()
-            if key >= .warning {
-                // Knock out a ring around the dot so it reads cleanly over the mark.
-                let dot = CGRect(x: rect.maxX - 6, y: rect.maxY - 6, width: 6, height: 6)
-                ctx.setBlendMode(.clear)
-                ctx.fillEllipse(in: dot.insetBy(dx: -1.25, dy: -1.25))
-                ctx.setBlendMode(.normal)
-                ctx.setFillColor(NSColor.black.cgColor)
-                if key == .reached {
-                    ctx.fillEllipse(in: dot)
-                } else {
-                    ctx.setStrokeColor(NSColor.black.cgColor)
-                    ctx.setLineWidth(1.5)
-                    ctx.strokeEllipse(in: dot.insetBy(dx: 0.75, dy: 0.75))
-                }
+            guard let dot else { return true }
+            // Knock out a ring around the dot so it reads cleanly over the mark.
+            let r = CGRect(x: rect.maxX - 6, y: rect.maxY - 6, width: 6, height: 6)
+            ctx.setBlendMode(.clear)
+            ctx.fillEllipse(in: r.insetBy(dx: -1.25, dy: -1.25))
+            ctx.setBlendMode(.normal)
+            switch dot {
+            case .filled:
+                ctx.fillEllipse(in: r)
+            case .ring:
+                ctx.setStrokeColor(NSColor.black.cgColor)
+                ctx.setLineWidth(1.5)
+                ctx.strokeEllipse(in: r.insetBy(dx: 0.75, dy: 0.75))
             }
             return true
         }
-        image.isTemplate = true
-        image.accessibilityDescription = "ImageGenKit"
-        cache[key] = image
-        return image
     }
 }
 

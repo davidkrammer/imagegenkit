@@ -37,7 +37,10 @@ from pathlib import Path
 VERSION = "1.0.5"
 HOMEPAGE = "https://github.com/davidkrammer/imagegenkit"
 GITHUB_REPO = "davidkrammer/imagegenkit"
-CATALOG_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/catalog/providers.json"
+# The env overrides are for testing against a local server.
+RAW_BASE = os.environ.get("IMAGEGENKIT_RAW_BASE", f"https://raw.githubusercontent.com/{GITHUB_REPO}").rstrip("/")
+RELEASES_API = os.environ.get("IMAGEGENKIT_RELEASES_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+CATALOG_URL = f"{RAW_BASE}/main/catalog/providers.json"
 
 CONFIG_DIR = Path.home() / ".config" / "imagegenkit"
 LEGACY_DIR = Path.home() / ".config" / "imagegen"  # used by the old `imagegen` CLI
@@ -214,7 +217,7 @@ def refresh_catalog():
     path = CONFIG_DIR / "catalog.json"
     try:
         old = json.loads(path.read_text())
-        if str(old.get("updated", "")) > str(new.get("updated", "")):
+        if str(old.get("updated", "")) >= str(new.get("updated", "")):
             return False
     except (OSError, ValueError):
         pass
@@ -1454,13 +1457,16 @@ def version_tuple(v):
 
 def self_update(force_check=True):
     """Install the CLI (and ImageGenKit-managed skills) from the latest GitHub release. Returns a short message."""
+    me = Path(os.path.realpath(__file__))
+    if (me.parent.parent / ".git").exists():
+        return f"not updating a source checkout ({me.parent.parent}); use git pull"
     ua = {"User-Agent": "imagegenkit", "Accept": "application/vnd.github+json"}
-    req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", headers=ua)
+    req = urllib.request.Request(RELEASES_API, headers=ua)
     with urllib.request.urlopen(req, timeout=8) as r:
         tag = json.loads(r.read())["tag_name"]
 
     def fetch(path):
-        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{tag}/{path}"
+        url = f"{RAW_BASE}/{tag}/{path}"
         with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "imagegenkit"}), timeout=20) as r:
             return r.read()
 
@@ -1472,7 +1478,6 @@ def self_update(force_check=True):
     if version_tuple(remote) <= version_tuple(VERSION):
         return f"up to date ({VERSION})"
     compile(code, "imagegenkit.py", "exec")  # never install something that doesn't parse
-    me = Path(os.path.realpath(__file__))
     tmp = me.with_name(me.name + ".new")
     tmp.write_bytes(code)
     tmp.chmod(0o755)
@@ -1489,7 +1494,8 @@ def self_update(force_check=True):
 
 
 def auto_update(cfg):
-    """Once a day, after a normal run: quietly update from the latest release (config auto_update: false turns it off)."""
+    """Once a day, after a normal run: update from the latest release in a detached background process, so the
+    run never waits for GitHub (config auto_update: false turns it off)."""
     if cfg.get("auto_update") is False or os.environ.get("IMAGEGENKIT_NO_UPDATE"):
         return
     stamp = CONFIG_DIR / ".update-check"
@@ -1498,29 +1504,39 @@ def auto_update(cfg):
             return
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         stamp.touch()
-        try:
-            refresh_catalog()
-        except Exception:
-            pass
-        msg = self_update()
-        if msg.startswith("updated"):
-            log(f"imagegenkit: {msg}")
-    except Exception:  # offline, rate limited, private repo, read-only install: try again tomorrow
+        subprocess.Popen([sys.executable, os.path.realpath(__file__), "_auto-update"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except Exception:  # read-only config, no python: try again tomorrow
+        pass
+
+
+def background_update():
+    """The detached part of auto_update: offline, rate limited, private repo, read-only install: try again tomorrow."""
+    try:
+        refresh_catalog()
+    except Exception:
+        pass
+    try:
+        self_update()
+    except Exception:
         pass
 
 
 def cmd_update(a, cfg):
     try:
         if refresh_catalog():
-            print("Provider list updated.")
+            print("Provider list updated.", flush=True)
     except (urllib.error.URLError, OSError, ValueError):
         pass
     try:
         print(self_update())
     except urllib.error.HTTPError as e:
-        die(f"couldn't check GitHub (HTTP {e.code}). {HOMEPAGE}/releases")
+        why = {404: "no release found", 403: "GitHub limits requests, try again in an hour"}.get(e.code, f"HTTP {e.code}")
+        die(f"couldn't check for updates ({why}). {HOMEPAGE}/releases")
     except (urllib.error.URLError, OSError) as e:
-        die(f"couldn't update: {e}")
+        die(f"couldn't reach GitHub ({getattr(e, 'reason', e)}). Check your internet connection")
+    except (ValueError, KeyError, SyntaxError):
+        die(f"couldn't update: unexpected answer from GitHub. {HOMEPAGE}/releases")
 
 
 def set_dotted(data, dotted, value):
@@ -1592,6 +1608,8 @@ def add_gen_args(p, task=False):
 
 def main():
     migrate_legacy()
+    if sys.argv[1:] == ["_auto-update"]:
+        return background_update()
     cfg = load_config()
     provs = all_providers(cfg)
     ap = argparse.ArgumentParser(

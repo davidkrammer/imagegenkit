@@ -1,0 +1,14 @@
+# Secrets
+# Xcode
+# macOS
+*.p8
+*.pem
+*.xcodeproj/
+*.xcuserstate
+.DS_Store
+.env*
+.worktrees/
+DerivedData/
+build/
+result*.json
+xcuserdata/

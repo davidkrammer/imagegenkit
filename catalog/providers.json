@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "updated": "2026-11-09",
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "adapter": "openai",
+      "auth": "key",
+      "tagline": "GPT Image. Great for final images, edits and transparent PNGs.",
+      "price_hint": "About $0.02–0.05 per image",
+      "key_url": "https://platform.openai.com/api-keys",
+      "steps": [
+        {"text": "Sign in to the OpenAI Platform, or create a free account.", "button": "Open OpenAI", "url": "https://platform.openai.com/api-keys"},
+        {"text": "Add a payment method or credits under Billing. Images need a paid account.", "button": "Open Billing", "url": "https://platform.openai.com/settings/organization/billing"},
+        {"text": "Create a new secret key, name it ImageGenKit, and copy it."},
+        {"text": "Paste the key below."}
+      ],
+      "prices": {"text_in": 5, "image_in": 8, "image_out": 30},
+      "models": ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2"],
+      "transparent": true,
+      "beta": false
+    },
+    {
+      "id": "grok",
+      "name": "Grok subscription",
+      "adapter": "grok-build",
+      "auth": "login",
+      "tagline": "Uses your grok.com subscription. No per-image cost. Great for quick drafts.",
+      "price_hint": "Included in your subscription",
+      "key_url": "https://grok.com",
+      "steps": [
+        {"text": "Install Grok Build, xAI's free command line app.", "action": "install-grok"},
+        {"text": "Log in with the account that has your Grok subscription.", "action": "login-grok"}
+      ],
+      "prices": {},
+      "models": [],
+      "transparent": false,
+      "beta": false
+    },
+    {
+      "id": "xai",
+      "name": "xAI API",
+      "adapter": "xai",
+      "auth": "key",
+      "tagline": "Grok Imagine with an API key. Pay per image, no subscription needed.",
+      "price_hint": "About $0.02–0.04 per image",
+      "key_url": "https://console.x.ai",
+      "steps": [
+        {"text": "Sign in to the xAI Console, or create an account.", "button": "Open xAI Console", "url": "https://console.x.ai"},
+        {"text": "Add credits under Billing."},
+        {"text": "Create an API key and copy it."},
+        {"text": "Paste the key below."}
+      ],
+      "prices": {"per_image": 0.02},
+      "models": ["grok-imagine-image", "grok-imagine-image-2.0"],
+      "transparent": false,
+      "beta": true
+    },
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "adapter": "gemini",
+      "auth": "key",
+      "tagline": "Nano Banana image models from Google.",
+      "price_hint": "About $0.03–0.11 per image",
+      "key_url": "https://aistudio.google.com/apikey",
+      "steps": [
+        {"text": "Sign in to Google AI Studio with your Google account.", "button": "Open AI Studio", "url": "https://aistudio.google.com/apikey"},
+        {"text": "Create an API key and copy it."},
+        {"text": "Turn on billing for the key's Google Cloud project. Image models need a paid tier."},
+        {"text": "Paste the key below."}
+      ],
+      "prices": {"per_image": 0.0336},
+      "models": ["gemini-nano-banana-2.1", "gemini-3.1-flash-lite-image", "gemini-3-pro-image"],
+      "transparent": false,
+      "beta": true
+    }
+  ]
+}

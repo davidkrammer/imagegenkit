@@ -13,7 +13,7 @@
   <a href="https://github.com/davidkrammer/imagegenkit/releases/latest"><b>Download for Mac</b></a> ·
   <a href="#install-with-your-ai-agent">Install with your AI agent</a> ·
   <a href="#command-line">Command line</a> ·
-  <a href="https://github.com/sponsors/davidkrammer">Donate</a>
+  <a href="#support">Donate</a>
 </p>
 
 ![ImageGenKit overview](docs/screenshots/overview.jpg)
@@ -118,7 +118,7 @@ Everything stays on your Mac. API keys are stored in the macOS Keychain and are 
 
 ## Support
 
-ImageGenKit is free and open source. If it saves you time, you can [donate on GitHub Sponsors](https://github.com/sponsors/davidkrammer), once or monthly, any amount. Bug reports and pull requests help too.
+ImageGenKit is free and open source. If it saves you time, you can donate any amount with [PayPal](https://www.paypal.com/donate/?business=hello%40strics.at&currency_code=EUR&item_name=ImageGenKit) or on [GitHub Sponsors](https://github.com/sponsors/davidkrammer) (once or monthly). Bug reports and pull requests help too.
 
 ## Build from source
 

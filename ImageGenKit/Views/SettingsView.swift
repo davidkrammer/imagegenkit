@@ -368,9 +368,16 @@ struct SettingsAboutSection: View {
                 Link(destination: Updater.homepage) {
                     Label("GitHub", systemImage: "arrow.up.right.square")
                 }
-                Link(destination: Updater.donate) {
+                Menu {
+                    Link("PayPal", destination: Updater.donatePayPal)
+                    Link("GitHub Sponsors", destination: Updater.donateGitHub)
+                } label: {
                     Label("Donate", systemImage: "heart")
                 }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
                 .help("ImageGenKit is free. A donation helps keep it going.")
             }
             .buttonStyle(.link).foregroundStyle(Theme.accent)

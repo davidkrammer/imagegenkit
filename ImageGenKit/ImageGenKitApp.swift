@@ -56,7 +56,10 @@ struct ImageGenKitApp: App {
                 Button("Welcome Tour…") { OnboardingStore.show() }
                 Divider()
                 Link("ImageGenKit on GitHub", destination: Updater.homepage)
-                Link("Donate…", destination: Updater.donate)
+                Menu("Donate") {
+                    Link("PayPal", destination: Updater.donatePayPal)
+                    Link("GitHub Sponsors", destination: Updater.donateGitHub)
+                }
             }
         }
 
@@ -118,6 +121,11 @@ extension ImageGenKitApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MenuBarDock.shared.install()
+        // Quit from the Dock, AppleScript, logout or shutdown arrives as an Apple event, which AppKit refuses while a
+        // sheet is open. Route it through `quit()` so it works with the welcome tour open, like ⌘Q.
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleQuitEvent(_:reply:)),
+            forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEQuitApplication))
         #if DEBUG
         // `-debugQuitAfter 8`: the same path as ⌘Q, after n seconds (tests quitting with a sheet open).
         let delay = UserDefaults.standard.double(forKey: "debugQuitAfter")
@@ -131,6 +139,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard hasSheets else { NSApp.terminate(nil); return }
         NotificationCenter.default.post(name: .imageGenKitDismissSheets, object: nil)
         terminateWhenSheetsClosed(tries: 20)
+    }
+
+    @objc private func handleQuitEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        AppDelegate.quit()
     }
 
     private static var hasSheets: Bool { NSApp.windows.contains { $0.attachedSheet != nil } }

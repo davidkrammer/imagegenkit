@@ -22,8 +22,9 @@ final class Updater {
         return URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
     }
     static let homepage = URL(string: "https://github.com/\(repo)")!
-    /// GitHub Sponsors: one-time or monthly, any amount.
-    static let donate = URL(string: "https://github.com/sponsors/davidkrammer")!
+    /// Donations: PayPal works without an account; GitHub Sponsors does one-time or monthly.
+    static let donatePayPal = URL(string: "https://www.paypal.com/donate/?business=hello%40strics.at&currency_code=EUR&item_name=ImageGenKit")!
+    static let donateGitHub = URL(string: "https://github.com/sponsors/davidkrammer")!
 
     var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
     var updateAvailable: Bool { if case .available = state { true } else { false } }

@@ -926,11 +926,11 @@ def run_openrouter(a, cfg, spec, task):
     if a.aspect:
         w, h = parse_aspect(a.aspect)
         params["aspect_ratio"] = f"{w:g}:{h:g}"
-    for key, val in (("resolution", (a.resolution or pref(cfg, spec, "resolution") or "").upper() or None),
-                     ("quality", a.quality or pref(cfg, spec, "quality")),
-                     ("output_format", a.format or pref(cfg, spec, "format"))):
+    for name, val in (("resolution", (a.resolution or pref(cfg, spec, "resolution") or "").upper() or None),
+                      ("quality", a.quality or pref(cfg, spec, "quality")),
+                      ("output_format", a.format or pref(cfg, spec, "format"))):
         if val:
-            params[key] = val
+            params[name] = val
     params.update(parse_extra(a.extra))
     body = {"model": model, "prompt": prompt, **params}
     if refs:

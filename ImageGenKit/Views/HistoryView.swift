@@ -26,13 +26,14 @@ struct HistoryView: View {
             .sorted(using: sortOrder)
         Table(rows, selection: $store.selectedID, sortOrder: $sortOrder) {
             TableColumn("Date", value: \.date) { row in
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     HistoryThumb(entry: row.entry)
                     Text(HistoryFormat.date(row.date))
                         .monospacedDigit()
+                        .lineLimit(1)
                 }
             }
-            .width(min: 140, ideal: 160)
+            .width(min: 150, ideal: 172)
             TableColumn("Provider", value: \.provider) { row in
                 HStack(spacing: 7) {
                     Circle().fill(ProviderStyle.color(row.entry.provider)).frame(width: 8, height: 8)
@@ -41,9 +42,9 @@ struct HistoryView: View {
             }
             .width(min: 70, ideal: 85)
             TableColumn("Type") { (row: HistoryRow) in
-                Text(row.entry.kindLabel).foregroundStyle(.secondary)
+                Pill(text: row.entry.kindLabel)
             }
-            .width(min: 55, ideal: 65)
+            .width(min: 64, ideal: 76)
             TableColumn("Model", value: \.model) { row in
                 Text(row.model).lineLimit(1)
             }
@@ -62,7 +63,7 @@ struct HistoryView: View {
                     if row.cost >= 0 {
                         Text(HistoryFormat.cost(row.cost)).monospacedDigit()
                     } else {
-                        Text("subscription").foregroundStyle(.secondary)
+                        Text("Plan").foregroundStyle(.secondary).help("Covered by your subscription")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -96,14 +97,27 @@ struct HistoryView: View {
         }
         .overlay {
             if rows.isEmpty {
-                if store.searchText.isEmpty {
-                    ContentUnavailableView("No runs yet", systemImage: "list.bullet.rectangle")
-                } else {
-                    ContentUnavailableView.search(text: store.searchText)
-                }
+                HistoryEmptyState(kind: emptyKind)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.background)
+                    .transition(.opacity)
             }
         }
-        .navigationSubtitle("\(rows.count) runs")
+        .animation(.smooth(duration: 0.25), value: rows.isEmpty)
+        #if DEBUG
+        .task {  // `-historySearch TEXT` (screenshots of the no-results state)
+            if let text = UserDefaults.standard.string(forKey: "historySearch") { store.searchText = text }
+        }
+        #endif
+        .navigationSubtitle(rows.count == 1 ? "1 run" : "\(rows.count) runs")
+    }
+}
+
+extension HistoryView {
+    private var emptyKind: HistoryEmptyState.Kind {
+        if store.entries.isEmpty { return .noRuns }
+        if !store.searchText.trimmingCharacters(in: .whitespaces).isEmpty { return .search(store.searchText) }
+        return .filtered
     }
 }
 
@@ -129,7 +143,7 @@ private struct HistoryThumb: View {
 
     var body: some View {
         Theme.well
-            .frame(width: 24, height: 24)
+            .frame(width: 30, height: 30)
             .overlay {
                 if let image {
                     Image(decorative: image, scale: 1).resizable().scaledToFill()
@@ -139,8 +153,9 @@ private struct HistoryThumb: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .padding(.vertical, 2)
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+            .padding(.vertical, 3)
             .task(id: entry.id) {
                 guard !entry.outputs.isEmpty else { return }
                 image = await Thumbnails.thumbnail(entry.imageRef(0))

@@ -93,6 +93,7 @@ BUILTIN_PROVIDERS = {
                "env": "GEMINI_API_KEY", "key_url": "https://aistudio.google.com/apikey"},
 }
 CAN_TRANSPARENT = {"openai"}  # provider types that return real alpha
+CUSTOM_TYPES = ("openai-compatible", "openrouter", "together", "fal")  # adapters for providers in config/catalog
 SUBSCRIPTION_TYPES = {"grok-build", "codex-cli"}  # log in instead of an API key
 RESERVED = set(TASKS) | {"usage", "update", "check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
                          "help", "log"}
@@ -188,15 +189,18 @@ def enable_provider(name):
         write_user_config(data)
 
 
-def catalog_entry(name):
-    """The provider's entry in the cached catalog (~/.config/imagegenkit/catalog.json), refreshed from GitHub."""
+def catalog_providers():
+    """Entries of the cached catalog (~/.config/imagegenkit/catalog.json), refreshed from GitHub."""
     try:
-        for e in json.loads((CONFIG_DIR / "catalog.json").read_text()).get("providers", []):
-            if e.get("id") == name:
-                return e
-    except (OSError, ValueError):
-        pass
-    return {}
+        entries = json.loads((CONFIG_DIR / "catalog.json").read_text()).get("providers", [])
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [e for e in entries if isinstance(e, dict) and e.get("id")] if isinstance(entries, list) else []
+
+
+def catalog_entry(name):
+    """The provider's entry in the cached catalog."""
+    return next((e for e in catalog_providers() if e.get("id") == name), {})
 
 
 def refresh_catalog():
@@ -245,11 +249,23 @@ def all_providers(cfg):
             continue
         s = dict(spec)
         s.setdefault("type", "openai-compatible")
-        if s["type"] not in ("openai-compatible", "openrouter", "together", "fal"):
+        if s["type"] not in CUSTOM_TYPES:
             s["type"] = "openai-compatible"
         s.setdefault("label", name)
         s.setdefault("env", re.sub(r"[^A-Z0-9]", "_", name.upper()) + "_API_KEY")
         s.update(name=name, builtin=False)
+        out[name] = s
+    # Catalog providers the app would add (OpenRouter, Recraft, ...), so they work without the app too.
+    for e in catalog_providers():
+        name = e["id"]
+        if name in out or name in RESERVED or e.get("adapter") not in CUSTOM_TYPES or not e.get("base_url"):
+            continue
+        s = {"type": e["adapter"], "label": e.get("name") or name, "catalog": name, "base_url": e["base_url"],
+             "model": e.get("model"), "env": re.sub(r"[^A-Z0-9]", "_", name.upper()) + "_API_KEY",
+             "key_url": e.get("key_url"), "name": name, "builtin": False}
+        for k in ("edit_model", "size_style"):
+            if e.get(k):
+                s[k] = e[k]
         out[name] = s
     return out
 

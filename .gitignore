@@ -12,3 +12,5 @@ DerivedData/
 build/
 result*.json
 xcuserdata/
+.build/
+.shots/

@@ -208,3 +208,65 @@ struct DestructiveLabel: View {
         Label(title, systemImage: icon).foregroundStyle(.red)
     }
 }
+
+// MARK: - Design system (shared by every screen)
+
+/// The main call-to-action button: accent gradient capsule.
+struct PrimaryButtonStyle: ButtonStyle {
+    var fullWidth = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .background(
+                LinearGradient(colors: [Theme.accent, Theme.accent.opacity(0.82)], startPoint: .top, endPoint: .bottom),
+                in: Capsule())
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Small capsule label, e.g. "Beta" or a size.
+struct Pill: View {
+    let text: String
+    var color: Color = .secondary
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
+    }
+}
+
+/// SF Symbol in a tinted rounded square.
+struct IconBadge: View {
+    let symbol: String
+    var color: Color = Theme.accent
+    var size: CGFloat = 28
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .foregroundStyle(color)
+            .frame(width: size, height: size)
+            .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.28))
+    }
+}
+
+extension View {
+    /// Card surface: neutral fill, hairline border, soft shadow.
+    func card(padding: CGFloat = 16, radius: CGFloat = 14) -> some View {
+        self.padding(padding)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.primary.opacity(0.06)))
+            .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+    }
+}

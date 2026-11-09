@@ -13,6 +13,10 @@ struct ImageGenKitApp: App {
 
     init() {
         Paths.migrateLegacyConfig()
+        // `-forceAppearance light|dark` (screenshots).
+        if let mode = UserDefaults.standard.string(forKey: "forceAppearance") {
+            NSApplication.shared.appearance = NSAppearance(named: mode == "dark" ? .darkAqua : .aqua)
+        }
     }
 
     var body: some Scene {

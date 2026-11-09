@@ -27,9 +27,12 @@ struct SettingsProviderImageRow: View {
             header
             if open && expandable {
                 VStack(spacing: 0) { options }
-                    .padding(.leading, 40)
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
+                    .padding(.vertical, 4)
+                    .background(Theme.well.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.leading, 58)
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 14)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
@@ -40,8 +43,9 @@ struct SettingsProviderImageRow: View {
             withAnimation(.snappy(duration: 0.22)) { open.toggle() }
         } label: {
             HStack(spacing: 12) {
-                Circle().fill(provider.color).frame(width: 10, height: 10).frame(width: 28)
-                Text(provider.label).foregroundStyle(.primary)
+                SettingsProviderTile(id: provider.id, kind: provider.kind, size: 32)
+                Text(provider.label).foregroundStyle(.primary).lineLimit(1)
+                    .layoutPriority(1)
                 Spacer(minLength: 8)
                 Text(summary)
                     .font(.callout)
@@ -56,7 +60,7 @@ struct SettingsProviderImageRow: View {
                 }
             }
             .padding(.horizontal, 14)
-            .frame(minHeight: 48)
+            .frame(minHeight: 56)
             .background(hovering && expandable ? Color.primary.opacity(0.03) : .clear)
             .contentShape(Rectangle())
         }
@@ -94,7 +98,6 @@ struct SettingsProviderImageRow: View {
 
     private func optionRow<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) {
-            Divider().padding(.leading, 14)
             HStack(spacing: 12) {
                 Text(title).foregroundStyle(.secondary)
                 Spacer(minLength: 8)

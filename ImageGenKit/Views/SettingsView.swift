@@ -12,17 +12,18 @@ struct SettingsView: View {
     var body: some View {
         ScrollViewReader { proxy in
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                SettingsProvidersSection(sheet: $sheet)
-                SettingsTasksSection()
-                SettingsImagesSection().id("images")
-                SettingsAgentsSection()
-                SettingsAboutSection()
+            VStack(alignment: .leading, spacing: 32) {
+                SettingsProvidersSection(sheet: $sheet).settingsEnter(0)
+                SettingsTasksSection().settingsEnter(1)
+                SettingsImagesSection().id("images").settingsEnter(2)
+                SettingsAgentsSection().settingsEnter(3)
+                SettingsAboutSection().settingsEnter(4)
                 Color.clear.frame(height: 1).id("end")
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 24)
-            .frame(maxWidth: 680)
+            .padding(.top, 20)
+            .padding(.bottom, 32)
+            .frame(maxWidth: 700)
             .frame(maxWidth: .infinity)
         }
         #if DEBUG
@@ -38,6 +39,7 @@ struct SettingsView: View {
         }
         #endif
         }
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .sheet(item: $sheet) { AddProviderSheet(route: $0) }
@@ -63,23 +65,42 @@ struct SettingsView: View {
 
 // MARK: - Building blocks
 
-/// A titled group: small header above a card.
+/// A titled group like a tour step: icon badge, title and a one-line lead above a card.
 struct SettingsSection<Content: View, Accessory: View>: View {
     let title: String
+    var icon: String?
+    var lead: String?
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
 
+    init(title: String, icon: String? = nil, lead: String? = nil,
+         @ViewBuilder accessory: () -> Accessory, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.lead = lead
+        self.accessory = accessory()
+        self.content = content()
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.title3.weight(.semibold))
-                Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                if let icon { IconBadge(symbol: icon, size: 32) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 17, weight: .semibold))
+                    if let lead {
+                        Text(lead).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .layoutPriority(1)
+                Spacer(minLength: 8)
                 accessory
             }
             .padding(.horizontal, 4)
             VStack(spacing: 0) { content }
                 .frame(maxWidth: .infinity)
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06)))
                 .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
         }
@@ -87,10 +108,8 @@ struct SettingsSection<Content: View, Accessory: View>: View {
 }
 
 extension SettingsSection where Accessory == EmptyView {
-    init(title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.accessory = EmptyView()
-        self.content = content()
+    init(title: String, icon: String? = nil, lead: String? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title: title, icon: icon, lead: lead, accessory: { EmptyView() }, content: content)
     }
 }
 
@@ -105,8 +124,8 @@ struct SettingsRow<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if let icon { IconBadge(symbol: icon, color: tint, size: 28) }
-            VStack(alignment: .leading, spacing: 1) {
+            if let icon { IconBadge(symbol: icon, color: tint, size: 32) }
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                 if let detail, !detail.isEmpty {
                     Text(detail).font(.caption).foregroundStyle(detailColor).lineLimit(1).truncationMode(.middle)
@@ -118,7 +137,7 @@ struct SettingsRow<Trailing: View>: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(minHeight: 48)
+        .frame(minHeight: 56)
     }
 }
 
@@ -144,7 +163,7 @@ struct SettingsDisclosure<Content: View>: View {
             withAnimation(.snappy(duration: 0.22)) { open.toggle() }
         } label: {
             HStack(spacing: 12) {
-                IconBadge(symbol: icon, color: .secondary, size: 28)
+                IconBadge(symbol: icon, color: .secondary, size: 32)
                 Text(title).foregroundStyle(.primary)
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -153,14 +172,18 @@ struct SettingsDisclosure<Content: View>: View {
                     .rotationEffect(.degrees(open ? 90 : 0))
             }
             .padding(.horizontal, 14)
-            .frame(minHeight: 48)
+            .frame(minHeight: 56)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         if open {
             VStack(spacing: 0) { content }
-                .padding(.leading, 40)
-                .transition(.opacity)
+                .padding(.vertical, 4)
+                .background(Theme.well.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.leading, 58)
+                .padding(.trailing, 14)
+                .padding(.bottom, 14)
+                .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
 }
@@ -173,9 +196,9 @@ struct SettingsTasksSection: View {
 
     var body: some View {
         let enabled = config.enabled(ready: { status.state($0).isReady })
-        SettingsSection(title: "Use for") {
+        SettingsSection(title: "Use for", icon: "slider.horizontal.3", lead: "Pick a provider for each kind of image.") {
             ForEach(Array(ImageTask.allCases.enumerated()), id: \.element) { i, task in
-                if i > 0 { SettingsDivider(inset: 54) }
+                if i > 0 { SettingsDivider(inset: 58) }
                 SettingsRow(icon: task.icon, title: task.label, detail: hint(task)) {
                     picker(task, enabled: task == .transparent ? enabled.filter(\.canTransparent) : enabled)
                 }
@@ -221,15 +244,15 @@ struct SettingsImagesSection: View {
 
     var body: some View {
         let enabled = config.enabled(ready: { status.state($0).isReady })
-        SettingsSection(title: "Images") {
+        SettingsSection(title: "Images", icon: "photo.on.rectangle.angled", lead: "Where they're saved and how they look.") {
             SettingsRow(icon: "folder", title: "Save to", detail: config.string("output_dir")) {
                 Button("Choose…", action: chooseFolder)
             }
             ForEach(enabled) { p in
-                SettingsDivider(inset: 54)
+                SettingsDivider(inset: 58)
                 SettingsProviderImageRow(provider: p)
             }
-            SettingsDivider(inset: 54)
+            SettingsDivider(inset: 58)
             SettingsPricesSection()
         }
     }
@@ -253,38 +276,37 @@ struct SettingsPricesSection: View {
 
     var body: some View {
         SettingsDisclosure(title: "Prices", icon: "dollarsign") {
-                Text("OpenAI · per 1M tokens")
-                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14).padding(.top, 4)
-                priceRow("Text in", "openai", "text_in")
-                SettingsDivider()
-                priceRow("Image in", "openai", "image_in")
-                SettingsDivider()
-                priceRow("Image out", "openai", "image_out")
-                Text("Per image")
-                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14).padding(.top, 12)
-                priceRow("xAI API", "xai", "per_image")
-                SettingsDivider()
-                priceRow("Gemini", "gemini", "per_image")
-                ForEach(config.customProviders) { p in
-                    SettingsDivider()
-                    priceRow(p.label, p.id, "per_image")
-                }
-                SettingsDivider()
-                HStack {
-                    Spacer()
-                    Button("Reset to Defaults") { config.resetPrices() }
-                        .buttonStyle(.borderless)
-                }
-                .padding(.horizontal, 14).padding(.vertical, 10)
+            caption("OpenAI · per 1M tokens", top: 6)
+            priceRow("Text in", "openai", "text_in")
+            priceRow("Image in", "openai", "image_in")
+            priceRow("Image out", "openai", "image_out")
+            caption("Per image", top: 12)
+            priceRow("xAI API", "xai", "per_image")
+            priceRow("Gemini", "gemini", "per_image")
+            ForEach(config.customProviders) { p in
+                priceRow(p.label, p.id, "per_image")
+            }
+            HStack {
+                Spacer()
+                Button("Reset to Defaults") { config.resetPrices() }
+                    .buttonStyle(.link)
+                    .font(.callout)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
         }
     }
 
+    private func caption(_ text: String, top: CGFloat) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14).padding(.top, top).padding(.bottom, 2)
+    }
+
     private func priceRow(_ title: String, _ provider: String, _ key: String) -> some View {
-        SettingsRow(title: title) {
+        HStack(spacing: 12) {
+            Text(title).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
             HStack(spacing: 4) {
                 Text("$").foregroundStyle(.secondary)
                 TextField(title, value: config.priceBinding(provider, key), format: .number.precision(.fractionLength(0...4)))
@@ -295,6 +317,9 @@ struct SettingsPricesSection: View {
                     .frame(width: 90)
             }
         }
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 40)
     }
 }
 
@@ -305,38 +330,59 @@ struct SettingsAboutSection: View {
     @Environment(Catalog.self) private var catalog
 
     var body: some View {
-        SettingsSection(title: "About") {
-            HStack(spacing: 12) {
-                AppIconView(size: 40)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("ImageGenKit").font(.body.weight(.semibold))
-                    Text("Version \(updater.currentVersion)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                }
-                Spacer()
-                updateControl
+        VStack(spacing: 0) {
+            ZStack {
+                SettingsArtBackground(radius: 260)
+                AppIconView(size: 72)
+                    .shadow(color: Theme.accent.opacity(0.25), radius: 16, y: 8)
+                    .settingsFloat(3, duration: 3.2)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            SettingsDivider()
-            HStack(spacing: 18) {
-                Button {
+            .frame(height: 132)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1) }
+
+            VStack(spacing: 4) {
+                Text("ImageGenKit").font(.system(size: 20, weight: .semibold))
+                Text("Version \(updater.currentVersion)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            }
+            .padding(.top, 18)
+
+            updateControl
+                .frame(minHeight: 32)
+                .padding(.top, 14)
+
+            HStack(spacing: 20) {
+                Button("Welcome Tour", systemImage: "sparkles") {
                     NotificationCenter.default.post(Notification(name: Notification.Name("ImageGenKitShowOnboarding")))
-                } label: {
-                    Label("Show Welcome Tour", systemImage: "sparkles")
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(Theme.accent)
                 Link(destination: Updater.homepage) {
                     Label("GitHub", systemImage: "arrow.up.right.square")
                 }
-                Spacer()
-                if !catalog.updated.isEmpty {
-                    Text("Providers updated \(catalog.updated)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                }
             }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 44)
+            .buttonStyle(.link)
+            .font(.callout)
+            .padding(.top, 14)
+
+            if !catalog.updated.isEmpty {
+                Text("Providers updated \(Self.shortDate(catalog.updated))")
+                    .font(.caption).foregroundStyle(.tertiary).monospacedDigit()
+                    .padding(.top, 10)
+            }
         }
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06)))
+        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+    }
+
+    /// "2026-11-09T02:00" → "Nov 9, 2026" (falls back to the raw text).
+    static func shortDate(_ raw: String) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        guard let d = f.date(from: String(raw.prefix(10))) else { return raw }
+        return d.formatted(date: .abbreviated, time: .omitted)
     }
 
     @ViewBuilder
@@ -348,8 +394,7 @@ struct SettingsAboutSection: View {
             ProgressView().controlSize(.small)
         case .upToDate:
             HStack(spacing: 8) {
-                Label("Up to date", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.callout)
+                SettingsBadge(text: "Up to date")
                 Button { Task { await updater.check() } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless)
                     .help("Check again")

@@ -13,21 +13,18 @@ struct SettingsProvidersSection: View {
 
     var body: some View {
         let enabled = config.enabled(ready: { status.state($0).isReady })
-        SettingsSection(title: "Providers") {
-            Button { sheet = .add } label: { Label("Add Provider", systemImage: "plus") }
-                .buttonStyle(.borderedProminent)
+        SettingsSection(title: "Providers", icon: "square.stack.3d.up.fill", lead: "Where your images come from.") {
+            if !enabled.isEmpty {
+                Button { sheet = .add } label: { Label("Add Provider", systemImage: "plus") }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+            }
         } content: {
             if enabled.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "sparkles").foregroundStyle(Theme.accent)
-                    Text("Add a provider to start making images.").foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 56)
+                SettingsProvidersEmpty { sheet = .add }
             } else {
                 ForEach(Array(enabled.enumerated()), id: \.element.id) { i, p in
-                    if i > 0 { SettingsDivider(inset: 44) }
+                    if i > 0 { SettingsDivider(inset: 82) }
                     SettingsProviderRow(provider: p, rank: i, entry: entry(for: p), sheet: $sheet, removing: $removing)
                         .overlay(alignment: .top) {
                             if dropTarget == p.id {
@@ -104,29 +101,34 @@ struct SettingsProviderRow: View {
             Image(systemName: "line.3.horizontal")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-                .opacity(hovering ? 1 : 0.5)
+                .opacity(hovering ? 1 : 0.35)
+                .frame(width: 12)
                 .help("Drag to reorder")
-            Circle().fill(provider.color).frame(width: 10, height: 10)
-            VStack(alignment: .leading, spacing: 1) {
+            SettingsProviderTile(id: provider.id, kind: provider.kind, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(provider.label).font(.body.weight(.medium))
+                    Text(provider.label).font(.body.weight(.medium)).lineLimit(1)
                     if entry?.tested == false { Pill(text: "Untested") }
                 }
                 Text(subtitle(state))
                     .font(.caption)
                     .foregroundStyle(isError(state) ? Color.red : .secondary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .help(status.testMessages[provider.id] ?? "")
             }
+            .layoutPriority(1)
             Spacer(minLength: 8)
             primary(state)
             menu(state)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 52)
+        .padding(.vertical, 8)
+        .frame(minHeight: 60)
         .background(hovering ? Color.primary.opacity(0.03) : .clear)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     private var installed: Bool { provider.kind == .codex ? status.codexInstalled : status.grokInstalled }
@@ -139,7 +141,7 @@ struct SettingsProviderRow: View {
     private func subtitle(_ state: ProviderState) -> String {
         if status.testing.contains(provider.id) { return "Testing…" }
         switch state {
-        case .ready: return provider.kind.isSubscription ? "Logged in" : "Connected"
+        case .ready: return provider.kind.isSubscription ? "Subscription · Logged in" : "API key · Connected"
         case .missing(let why), .error(let why): return why
         case .unknown: return "Checking…"
         }
@@ -150,9 +152,7 @@ struct SettingsProviderRow: View {
         if status.testing.contains(provider.id) {
             ProgressView().controlSize(.small)
         } else if state.isReady {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.green)
+            SettingsBadge(text: "Ready")
                 .help("Ready")
         } else if state != .unknown {
             Button(provider.needsKey ? "Add Key" : (installed ? "Log In" : "Set Up")) {
@@ -190,5 +190,40 @@ struct SettingsProviderRow: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+}
+
+/// No providers yet: a small tour-style picture, a title and one button.
+struct SettingsProvidersEmpty: View {
+    let add: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                SettingsArtBackground(radius: 240)
+                HStack(spacing: 14) {
+                    ForEach(Array(["grok", "codex", "openai", "gemini"].enumerated()), id: \.element) { i, id in
+                        SettingsProviderTile(id: id, size: 40)
+                            .padding(6)
+                            .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+                            .shadow(color: .black.opacity(0.07), radius: 8, y: 4)
+                            .settingsFloat(3, duration: 2.6 + Double(i) * 0.35)
+                            .settingsPop(0.1 + Double(i) * 0.08)
+                    }
+                }
+            }
+            .frame(height: 130)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1) }
+            VStack(spacing: 6) {
+                Text("Connect a provider").font(.system(size: 17, weight: .semibold))
+                Text("Your subscription or an API key.").font(.callout).foregroundStyle(.secondary)
+            }
+            .padding(.top, 18)
+            Button(action: add) { Label("Add Provider", systemImage: "plus") }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 14)
+                .padding(.bottom, 22)
+        }
+        .frame(maxWidth: .infinity)
     }
 }

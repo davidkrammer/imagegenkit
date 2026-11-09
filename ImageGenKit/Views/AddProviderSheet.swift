@@ -50,8 +50,8 @@ struct AddProviderSheet: View {
                                   back: route == .add ? { withAnimation(.snappy(duration: 0.25)) { page = .pick } } : nil)
             }
         }
-        .frame(width: 500)
-        .background(Theme.background)
+        .frame(width: 560)
+        .background(Theme.card)
         .onAppear {
             switch route {
             case .add: page = .pick
@@ -81,6 +81,80 @@ func addProviderEnable(_ id: String, before: [String], config: ConfigStore) {
     config.setEnabled(before.contains(id) ? before : before + [id])
 }
 
+// MARK: - Shared page layout (like a tour step)
+
+/// Picture panel, title with badge, one-line lead, content and a footer bar.
+struct AddProviderPage<Art: View, Badge: View, Content: View, Footer: View>: View {
+    let title: String
+    let lead: String
+    var artHeight: CGFloat = 100
+    @ViewBuilder var art: Art
+    @ViewBuilder var badge: Badge
+    @ViewBuilder var content: Content
+    @ViewBuilder var footer: Footer
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                SettingsArtBackground(radius: 300)
+                art
+            }
+            .frame(height: artHeight)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1) }
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(title).font(.system(size: 22, weight: .semibold)).lineLimit(1)
+                    badge
+                    Spacer(minLength: 0)
+                }
+                if !lead.isEmpty {
+                    Text(lead)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.top, 5)
+                }
+                content.padding(.top, 16)
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 20)
+            .padding(.bottom, 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 10) { footer }
+                .padding(.horizontal, 24)
+                .frame(height: 64)
+                .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1) }
+        }
+    }
+}
+
+/// A provider tile lifted on a card, floating in the picture panel.
+struct AddProviderHero: View {
+    let id: String
+    var kind: ProviderKind?
+    var symbol: String?
+
+    var body: some View {
+        Group {
+            if let symbol {
+                IconBadge(symbol: symbol, color: .gray, size: 52)
+            } else {
+                SettingsProviderTile(id: id, kind: kind, size: 52)
+            }
+        }
+        .padding(10)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.primary.opacity(0.06)))
+        .shadow(color: ProviderStyle.color(id).opacity(0.18), radius: 16, y: 6)
+        .settingsFloat(3, duration: 3)
+        .settingsPop(0.05)
+    }
+}
+
 // MARK: - Page 1: picker
 
 struct AddProviderPicker: View {
@@ -91,40 +165,60 @@ struct AddProviderPicker: View {
     @Environment(ProviderStatus.self) private var status
     @Environment(Catalog.self) private var catalog
 
+    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
     var body: some View {
         let added = Set(config.enabled(ready: { status.state($0).isReady }).flatMap { [$0.id, $0.catalogID ?? $0.id] })
-        let entries = catalog.providers.filter { $0.isBuiltin || $0.adapter == "openai-compatible" }
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Add Provider").font(.title2.weight(.semibold))
+        let all = catalog.providers.filter { $0.isBuiltin || $0.adapter == "openai-compatible" }
+        // Not-yet-added providers first; the ones already set up go last.
+        let entries = all.filter { !added.contains($0.id) } + all.filter { added.contains($0.id) }
+        AddProviderPage(title: "Add a provider", lead: "Use a subscription you have, or an API key.", artHeight: 92) {
+            HStack(spacing: 14) {
+                ForEach(Array(entries.prefix(5).enumerated()), id: \.element.id) { i, e in
+                    SettingsProviderTile(id: e.id, kind: ProviderKind(rawValue: e.adapter), size: 34)
+                        .padding(6)
+                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
+                        .shadow(color: .black.opacity(0.07), radius: 8, y: 4)
+                        .settingsFloat(3, duration: 2.6 + Double(i) * 0.35)
+                        .settingsPop(0.08 + Double(i) * 0.06)
+                }
+            }
+        } badge: {
+            EmptyView()
+        } content: {
             ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(entries) { e in
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { i, e in
                         let isAdded = added.contains(e.id)
-                        AddProviderCard(color: ProviderStyle.color(e.id), title: e.name, tagline: e.tagline,
-                                        price: e.priceHint, untested: !e.tested, added: isAdded) {
+                        AddProviderCard(id: e.id, kind: ProviderKind(rawValue: e.adapter), title: e.name,
+                                        tagline: e.tagline, price: e.priceHint, untested: !e.tested, added: isAdded) {
                             choose(AddProviderTarget(info: AddProviderSheet.info(for: e, config: config), entry: e))
                         }
                         .disabled(isAdded)
+                        .settingsEnter(i)
                     }
-                    AddProviderCard(color: .gray, title: "Other API", tagline: "Any OpenAI-compatible image API.",
+                    AddProviderCard(id: "other", title: "Other API", tagline: "Any OpenAI-compatible image API.",
                                     price: nil, untested: false, added: false, symbol: "server.rack", action: custom)
+                        .settingsEnter(entries.count)
                 }
                 .padding(2)
             }
             .scrollContentBackground(.hidden)
-            .frame(maxHeight: 440)
+            .scrollEdgeEffectStyle(.soft, for: .all)
+            .frame(maxHeight: 226)
             .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
-            }
+            .padding(-2)
+        } footer: {
+            Spacer()
+            Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
         }
-        .padding(24)
     }
 }
 
+/// A provider choice card (the tour's choice cards).
 struct AddProviderCard: View {
-    let color: Color
+    let id: String
+    var kind: ProviderKind?
     let title: String
     let tagline: String
     let price: String?
@@ -136,42 +230,42 @@ struct AddProviderCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 9).fill(color.opacity(0.15))
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
                     if let symbol {
-                        Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(color)
+                        IconBadge(symbol: symbol, color: .gray, size: 30)
                     } else {
-                        Circle().fill(color).frame(width: 12, height: 12)
+                        SettingsProviderTile(id: id, kind: kind, size: 30)
+                    }
+                    Spacer(minLength: 4)
+                    if added {
+                        SettingsBadge(text: "Added")
+                    } else if untested {
+                        Pill(text: "Untested")
                     }
                 }
-                .frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(title).font(.body.weight(.semibold))
-                        if untested { Pill(text: "Untested") }
-                    }
-                    Text(tagline).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                    if let price, !price.isEmpty {
-                        Text(price).font(.caption).foregroundStyle(.tertiary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                if added {
-                    Label("Added", systemImage: "checkmark").font(.callout).foregroundStyle(.secondary)
-                } else {
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                    Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                    Text(tagline).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2, reservesSpace: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(price?.isEmpty == false ? price! : " ")
+                        .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
                 }
             }
-            .padding(12)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(13)
+            .background(hovering && !added ? Theme.accent.opacity(0.07) : Theme.well, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(hovering && !added ? Theme.accent.opacity(0.5) : Color.primary.opacity(0.06)))
+                .strokeBorder(hovering && !added ? Theme.accent.opacity(0.5) : Color.primary.opacity(0.05)))
+            .offset(y: hovering && !added ? -1 : 0)
             .opacity(added ? 0.6 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+        .help(added ? "Already added" : tagline)
     }
 }
 
@@ -207,28 +301,48 @@ struct AddProviderSetup: View {
         return [.init(text: "Paste your API key below.", button: info.keyURL == nil ? nil : "Get Key", url: info.keyURL, action: nil)]
     }
 
+    private var connected: Bool { phase == .success || (isLogin && status.state(info.id).isReady) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            header
-            VStack(alignment: .leading, spacing: 14) {
-                let _ = tick
-                ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
-                    AddProviderStepRow(number: i + 1, step: step, done: stepDone(step), enabled: stepEnabled(step))
+        AddProviderPage(title: target.entry?.name ?? info.label, lead: lead) {
+            AddProviderHero(id: info.id, kind: info.kind)
+                .overlay(alignment: .bottomTrailing) {
+                    if connected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(.white, .green)
+                            .background(Circle().fill(Theme.card).padding(2))
+                            .offset(x: 8, y: 8)
+                            .transition(.scale(scale: 0.3).combined(with: .opacity))
+                    }
                 }
-                if untested {
-                    Label("Not tested by us yet.", systemImage: "info.circle")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                .animation(.spring(response: 0.4, dampingFraction: 0.65), value: connected)
+        } badge: {
+            if connected {
+                SettingsBadge(text: "Ready")
+            } else if untested {
+                SettingsBadge(text: "Untested", color: .secondary)
+            }
+        } content: {
+            VStack(alignment: .leading, spacing: 18) {
+                if connected {
+                    success
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        let _ = tick
+                        ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
+                            AddProviderStepRow(number: i + 1, step: step, done: stepDone(step), enabled: stepEnabled(step))
+                                .settingsEnter(i, dx: 14, dy: 0)
+                        }
+                    }
+                    if !isLogin { keyField.settingsEnter(steps.count, dx: 14, dy: 0) }
+                    result
                 }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .card(padding: 0)
-            if !isLogin { keyField }
-            result
+            .animation(.smooth(duration: 0.3), value: connected)
+        } footer: {
             footer
         }
-        .padding(24)
         .task(id: info.id) {
             guard isLogin else { return }
             while !Task.isCancelled {
@@ -246,30 +360,24 @@ struct AddProviderSetup: View {
         .onAppear { if !isLogin { keyFocused = true } }
     }
 
-    private var header: some View {
+    private var lead: String {
+        if let hint = target.entry?.priceHint, !hint.isEmpty { return hint }
+        return isLogin ? "Uses your subscription." : "Uses your API key."
+    }
+
+    private var success: some View {
         HStack(spacing: 12) {
-            if let back {
-                Button(action: back) {
-                    Image(systemName: "chevron.left").font(.body.weight(.semibold)).frame(width: 24, height: 24)
-                }
-                .buttonStyle(.borderless)
-                .help("Back")
-            }
-            ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(info.color.opacity(0.15))
-                Circle().fill(info.color).frame(width: 13, height: 13)
-            }
-            .frame(width: 38, height: 38)
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 30))
+                .foregroundStyle(.green)
+                .settingsPop()
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(target.entry?.name ?? info.label).font(.title2.weight(.semibold))
-                    if untested { Pill(text: "Untested") }
-                }
-                if let hint = target.entry?.priceHint, !hint.isEmpty {
-                    Text(hint).font(.callout).foregroundStyle(.secondary)
-                }
+                Text(isLogin ? "You're logged in." : "Connected.").font(.system(size: 15, weight: .semibold))
+                Text("Ready to make images.").font(.callout).foregroundStyle(.secondary)
             }
         }
+        .padding(.vertical, 6)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
     }
 
     private var keyField: some View {
@@ -288,17 +396,12 @@ struct AddProviderSetup: View {
 
     @ViewBuilder
     private var result: some View {
-        let loginReady = isLogin && status.state(info.id).isReady
-        if phase == .success || loginReady {
-            Label(isLogin ? "You're logged in." : "Connected. Ready to make images.", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .font(.callout.weight(.medium))
-                .transition(.opacity)
-        } else if phase == .working {
+        if phase == .working {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Checking…").foregroundStyle(.secondary)
             }
+            .font(.callout)
         } else if case .failed(let message) = phase {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
@@ -308,30 +411,30 @@ struct AddProviderSetup: View {
         }
     }
 
+    @ViewBuilder
     private var footer: some View {
-        HStack {
-            Spacer()
-            if isLogin {
-                let ready = status.state(info.id).isReady
-                if !ready { Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction) }
-                Button("Done") { finishLogin() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!ready)
-                    .opacity(ready ? 1 : 0.5)
-            } else if phase == .success {
-                Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-            } else {
-                let empty = key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Connect", action: connect)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(empty || phase == .working)
-                    .opacity(empty || phase == .working ? 0.5 : 1)
-            }
+        if let back, !connected {
+            Button("Back", action: back)
+        }
+        Spacer()
+        if isLogin {
+            let ready = status.state(info.id).isReady
+            if !ready { Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction) }
+            Button("Done") { finishLogin() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!ready)
+        } else if phase == .success {
+            Button("Done") { dismiss() }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+        } else {
+            let empty = key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Connect", action: connect)
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(empty || phase == .working)
         }
     }
 
@@ -395,30 +498,20 @@ struct AddProviderStepRow: View {
     let enabled: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                if done == true {
-                    Circle().fill(Color.green)
-                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                } else {
-                    Circle().fill(Theme.accent.opacity(0.14))
-                    Text("\(number)").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
-                }
+        HStack(alignment: .center, spacing: 12) {
+            SettingsStepNumber(number: number, done: done == true)
+            Text(step.text)
+                .font(.system(size: 14))
+                .foregroundStyle(done == true ? .secondary : .primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if done != true, let (title, action) = button {
+                Button(title, action: action)
+                    .disabled(!enabled)
+                    .fixedSize()
             }
-            .frame(width: 22, height: 22)
-            .animation(.snappy, value: done)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(step.text)
-                    .foregroundStyle(done == true ? .secondary : .primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 2)
-                if done != true, let (title, action) = button {
-                    Button(title, action: action)
-                        .disabled(!enabled)
-                }
-            }
-            Spacer(minLength: 0)
         }
+        .frame(minHeight: 30)
     }
 
     private var button: (String, () -> Void)? {
@@ -478,72 +571,65 @@ struct AddProviderCustom: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 12) {
-                if let back {
-                    Button(action: back) {
-                        Image(systemName: "chevron.left").font(.body.weight(.semibold)).frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Back")
-                }
-                IconBadge(symbol: "server.rack", color: .gray, size: 38)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(editing == nil ? "Other API" : editing!.label).font(.title2.weight(.semibold))
-                    Text("OpenAI-compatible").font(.callout).foregroundStyle(.secondary)
-                }
-            }
-            VStack(spacing: 0) {
-                field("Name", text: $name, prompt: "Together AI")
-                SettingsDivider()
-                field("Base URL", text: $baseURL, prompt: "https://api.example.com/v1")
-                SettingsDivider()
-                field("Model", text: $model, prompt: "model-id")
-                SettingsDivider()
-                field("Edit model", text: $editModel, prompt: "Optional")
-                SettingsDivider()
-                HStack(spacing: 12) {
-                    Text("API key").frame(width: 84, alignment: .leading)
-                    SecureField("API key", text: $key, prompt: Text(editing == nil ? "Paste your API key" : "Unchanged"))
-                        .textFieldStyle(.plain)
-                        .labelsHidden()
-                    Button("Paste") {
-                        if let s = NSPasteboard.general.string(forType: .string) {
-                            key = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        AddProviderPage(title: editing?.label ?? "Other API", lead: "Any OpenAI-compatible image API.") {
+            AddProviderHero(id: editing?.id ?? "other", symbol: editing == nil ? "server.rack" : nil)
+        } badge: {
+            if phase == .success { SettingsBadge(text: "Ready") }
+        } content: {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(spacing: 0) {
+                    field("Name", text: $name, prompt: "Together AI")
+                    SettingsDivider()
+                    field("Base URL", text: $baseURL, prompt: "https://api.example.com/v1")
+                    SettingsDivider()
+                    field("Model", text: $model, prompt: "model-id")
+                    SettingsDivider()
+                    field("Edit model", text: $editModel, prompt: "Optional")
+                    SettingsDivider()
+                    HStack(spacing: 12) {
+                        Text("API key").foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
+                        SecureField("API key", text: $key, prompt: Text(editing == nil ? "Paste your API key" : "Unchanged"))
+                            .textFieldStyle(.plain)
+                            .labelsHidden()
+                        Button("Paste") {
+                            if let s = NSPasteboard.general.string(forType: .string) {
+                                key = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
                         }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 40)
                 }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 40)
-            }
-            .card(padding: 0)
-            switch phase {
-            case .success:
-                Label("Connected. Ready to make images.", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.callout.weight(.medium))
-            case .working:
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
-            case .failed(let m):
-                Label(m, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout).lineLimit(3)
-            case .idle:
-                EmptyView()
-            }
-            HStack {
-                Spacer()
-                if phase == .success {
-                    Button("Done") { dismiss() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                } else {
-                    Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button(editing == nil ? "Connect" : "Save", action: save)
-                        .buttonStyle(.borderedProminent)
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(!valid || phase == .working)
-                        .opacity(!valid || phase == .working ? 0.5 : 1)
+                .background(Theme.well, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.05)))
+                switch phase {
+                case .success:
+                    Label("Connected. Ready to make images.", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green).font(.callout.weight(.medium))
+                        .transition(.opacity)
+                case .working:
+                    HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
+                        .font(.callout)
+                case .failed(let m):
+                    Label(m, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout).lineLimit(3)
+                case .idle:
+                    EmptyView()
                 }
+            }
+        } footer: {
+            if let back, phase != .success { Button("Back", action: back) }
+            Spacer()
+            if phase == .success {
+                Button("Done") { dismiss() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            } else {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(editing == nil ? "Connect" : "Save", action: save)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!valid || phase == .working)
             }
         }
-        .padding(24)
         .onAppear {
             guard let editing else { return }
             name = editing.label
@@ -555,7 +641,7 @@ struct AddProviderCustom: View {
 
     private func field(_ title: String, text: Binding<String>, prompt: String) -> some View {
         HStack(spacing: 12) {
-            Text(title).frame(width: 84, alignment: .leading)
+            Text(title).foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
             TextField(title, text: text, prompt: Text(prompt))
                 .textFieldStyle(.plain)
                 .labelsHidden()

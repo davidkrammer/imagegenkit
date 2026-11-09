@@ -105,7 +105,9 @@ struct OverviewView: View {
         let span = store.range.rawValue
         func delta(_ now: Double, _ before: Double?) -> Double? {
             guard let before, before > 0 else { return nil }
-            return (now - before) / before
+            let change = (now - before) / before
+            // A tiny previous range gives meaningless jumps like +4000%; show no badge then.
+            return abs(change) > 9.99 ? nil : change
         }
         return [
             OverviewStatCard(title: "Spend", value: Format.usd(stats.cost), symbol: "dollarsign",
@@ -395,7 +397,7 @@ private struct OverviewDelta: View {
                 Image(systemName: value > 0 ? "arrow.up.right" : "arrow.down.right")
                     .font(.system(size: 9, weight: .bold))
             }
-            Text(pct > 999 ? ">999%" : "\(pct)%")
+            Text("\(pct)%")
         }
         .font(.caption.weight(.medium))
         .monospacedDigit()

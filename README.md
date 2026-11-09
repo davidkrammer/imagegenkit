@@ -19,6 +19,7 @@
 
 ## What it does
 
+- **Easy setup**: a short welcome tour finds what's already on your Mac (Grok or Codex logged in, saved keys, Claude Code, Codex), connects it in one tap, and walks you through the rest.
 - **Generate** images by hand with any provider and every option it supports.
 - **Gallery and history** of everything you or your agents generated, with prompts, sizes and files.
 - **Usage and costs** per day, month, provider and project.
@@ -31,7 +32,9 @@
 |---|---|
 | ![Gallery](docs/screenshots/gallery.jpg) | ![Generate](docs/screenshots/generate.jpg) |
 
-![Settings](docs/screenshots/settings.jpg)
+| Welcome tour | Settings |
+|---|---|
+| ![Welcome tour](docs/screenshots/tour.jpg) | ![Settings](docs/screenshots/settings.jpg) |
 
 ## Install
 

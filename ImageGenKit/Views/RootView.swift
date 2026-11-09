@@ -52,6 +52,9 @@ struct RootView: View {
             case .settings: item = .settings
             }
         })
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ImageGenKitShowGenerate"))) { _ in
+            showGenerate = true
+        }
         .onAppear(perform: applyLaunchSection)
         .onChange(of: store.selectedID) { _, id in
             if id != nil { showInspector = true }

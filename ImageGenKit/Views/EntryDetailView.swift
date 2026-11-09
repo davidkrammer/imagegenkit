@@ -4,110 +4,140 @@ struct EntryDetailView: View {
     let entry: LogEntry
     @Environment(LogStore.self) private var store
     @Environment(ConfigStore.self) private var config
+    @State private var reference: DetailReference?
 
     var body: some View {
         let index = min(store.selectedImageIndex, max(entry.outputs.count - 1, 0))
+        let ref: ImageRef? = entry.outputs.isEmpty ? nil : entry.imageRef(index)
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if !entry.outputs.isEmpty {
-                    LargePreview(ref: entry.imageRef(index))
-                    if entry.outputs.count > 1 {
-                        HStack(spacing: 8) {
-                            ForEach(entry.outputs.indices, id: \.self) { i in
-                                ThumbnailView(ref: entry.imageRef(i))
-                                    .frame(width: 56, height: 56)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .strokeBorder(i == index ? Color.accentColor : .clear, lineWidth: 2)
-                                    }
-                                    .onTapGesture { store.selectedImageIndex = i }
-                            }
-                        }
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                if let ref {
+                    LargePreview(ref: ref)
+                    if entry.outputs.count > 1 { strip(selected: index) }
                 }
 
-                HStack {
+                DetailFlow(spacing: 6) {
                     ProviderBadge(provider: entry.provider)
-                    Text(entry.modelLabel).font(.callout.weight(.medium))
-                    Spacer()
-                    Text(entry.date.formatted(date: .abbreviated, time: .shortened))
-                        .font(.callout).foregroundStyle(.secondary)
+                    Pill(text: entry.modelLabel)
+                    Pill(text: entry.sizeLabel)
+                    if let q = entry.param("quality") { Pill(text: q.capitalized) }
+                    if let c = config.cost(entry) {
+                        Pill(text: Format.usd(c, precise: true), color: .primary)
+                    } else {
+                        Pill(text: "Subscription")
+                    }
+                    Pill(text: Format.seconds(entry.seconds))
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(entry.prompt)
-                        .textSelection(.enabled)
-                        .font(.callout)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
-                    HStack {
-                        Button("Copy Prompt", systemImage: "doc.on.doc") { Actions.copy(entry.prompt) }
-                        Button("Copy Command", systemImage: "terminal") { Actions.copy(entry.rerunCommand) }
-                            .help(entry.rerunCommand)
-                    }
-                    .controlSize(.small)
-                }
+                DetailPromptCard(prompt: entry.prompt)
+
+                actions(ref: ref, index: index)
 
                 details
 
-                files
+                if !entry.refs.isEmpty { references }
+            }
+            .padding(20)
+        }
+        .background(Theme.background)
+        .sheet(item: $reference) { ref in
+            GenerateView(references: [ref.url])
+        }
+    }
 
-                if !entry.refs.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("References").font(.headline)
-                        ForEach(entry.refs, id: \.self) { ref in
-                            FileRow(path: ref, note: nil)
+    // MARK: Pieces
+
+    private func strip(selected: Int) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(entry.outputs.indices, id: \.self) { i in
+                    ThumbnailView(ref: entry.imageRef(i))
+                        .frame(width: 52, height: 52)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(i == selected ? Theme.accent : Color.primary.opacity(0.08),
+                                              lineWidth: i == selected ? 2.5 : 1)
                         }
-                    }
+                        .opacity(i == selected ? 1 : 0.75)
+                        .contentShape(Rectangle())
+                        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { store.selectedImageIndex = i } }
                 }
             }
-            .padding(16)
+            .padding(2)
+        }
+    }
+
+    private func actions(ref: ImageRef?, index: Int) -> some View {
+        let path = ref.map { entry.outputs[$0.index] }
+        let fileExists = path.map(ImageLocator.exists) ?? false
+        let referenceSource: URL? = ref.flatMap { ImageLocator.source(for: $0)?.url ?? ImageLocator.existingThumb(for: $0) }
+        return HStack(spacing: 8) {
+            DetailActionButton(symbol: "arrow.up.forward.app", help: "Open") {
+                if let ref { Actions.open(ref) }
+            }
+            .disabled(ref == nil)
+            DetailActionButton(symbol: "folder", help: "Show in Finder") {
+                if let path { Actions.reveal(path) }
+            }
+            .disabled(!fileExists)
+            DetailActionButton(symbol: "text.quote", help: "Copy prompt", copies: true) {
+                Actions.copy(entry.prompt)
+            }
+            DetailActionButton(symbol: "terminal", help: "Copy command", copies: true) {
+                Actions.copy(entry.rerunCommand)
+            }
+            Spacer(minLength: 0)
+            DetailActionButton(symbol: "wand.and.sparkles", help: "Use as reference", prominent: true) {
+                reference = referenceSource.map(DetailReference.init)
+            }
+            .disabled(referenceSource == nil)
         }
     }
 
     private var details: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-            row("Type", entry.kindLabel)
-            row("Size", entry.sizeLabel)
-            if let q = entry.param("quality") { row("Quality", q) }
-            if let b = entry.param("background") { row("Background", b) }
-            row("Images", "\(entry.imageCount)")
-            row("Time", Format.seconds(entry.seconds))
-            if let c = config.cost(entry) {
-                row("Cost", Format.usd(c, precise: true))
-            } else {
-                row("Cost", "subscription")
-            }
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+            row("Date", entry.date.formatted(date: .abbreviated, time: .shortened))
+            row("Project", entry.project)
+            if let c = entry.caller, !c.label.isEmpty { row("Started by", c.label) }
             if let u = entry.openAIUsage {
                 row("Tokens", "\(Format.tokens(u.inputTokens)) in · \(Format.tokens(u.outputTokens)) out")
             }
-            row("Project", entry.project)
-            if let c = entry.caller, !c.label.isEmpty { row("Started by", c.label) }
-            row("Folder", entry.cwd)
-        }
-        .font(.callout)
-    }
-
-    private func row(_ label: String, _ value: String) -> some View {
-        GridRow(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(.secondary).gridColumnAlignment(.trailing)
-            Text(value).textSelection(.enabled).lineLimit(3).truncationMode(.middle)
-        }
-    }
-
-    private var files: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(entry.outputs.count == 1 ? "File" : "Files").font(.headline)
-            ForEach(entry.outputs.indices, id: \.self) { i in
-                let path = entry.outputs[i]
-                FileRow(path: path, note: ImageLocator.exists(path) ? nil : missingNote(i))
+            row("Folder", (entry.cwd as NSString).abbreviatingWithTildeInPath, middle: true)
+            if let note = missingNote {
+                row("File", note)
             }
         }
+        .font(.callout)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
     }
 
-    private func missingNote(_ i: Int) -> String {
+    private func row(_ label: String, _ value: String, middle: Bool = false) -> some View {
+        GridRow(alignment: .firstTextBaseline) {
+            Text(label).foregroundStyle(.tertiary).gridColumnAlignment(.leading)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(middle ? 1 : 2)
+                .truncationMode(middle ? .middle : .tail)
+                .help(value)
+        }
+    }
+
+    private var references: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("References").font(.callout).foregroundStyle(.tertiary)
+            DetailFlow(spacing: 8) {
+                ForEach(entry.refs, id: \.self) { DetailReferenceThumb(path: $0) }
+            }
+        }
+        .padding(.horizontal, 2)
+    }
+
+    private var missingNote: String? {
+        let i = min(store.selectedImageIndex, max(entry.outputs.count - 1, 0))
+        guard i < entry.outputs.count, !ImageLocator.exists(entry.outputs[i]) else { return nil }
         let ref = entry.imageRef(i)
         if ImageLocator.source(for: ref)?.kind == .grokCopy { return "Deleted · Grok copy left" }
         if ImageLocator.existingThumb(for: ref) != nil { return "Deleted · preview left" }
@@ -115,35 +145,166 @@ struct EntryDetailView: View {
     }
 }
 
-private struct FileRow: View {
-    let path: String
-    let note: String?
+/// The image handed to GenerateView as a reference.
+private struct DetailReference: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+// MARK: - Components
+
+/// Prompt text in a card, with a copy icon.
+private struct DetailPromptCard: View {
+    let prompt: String
+    @State private var copied = false
 
     var body: some View {
-        let exists = ImageLocator.exists(path)
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: exists ? "photo" : "photo.badge.exclamationmark")
-                .foregroundStyle(exists ? Color.secondary : Color.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text((path as NSString).lastPathComponent).font(.callout).lineLimit(1).truncationMode(.middle)
-                Text((path as NSString).deletingLastPathComponent)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
-                    .textSelection(.enabled)
-                if let note { Text(note).font(.caption).foregroundStyle(.orange) }
+        Text(prompt)
+            .font(.callout)
+            .lineSpacing(2)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, 22)
+            .card(padding: 14, radius: 14)
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    Actions.copy(prompt)
+                    copied = true
+                    Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .contentTransition(.symbolEffect(.replace))
+                        .foregroundStyle(copied ? Theme.accent : .secondary)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Copy prompt")
+                .padding(8)
             }
-            Spacer(minLength: 0)
-            if exists {
-                Button { Actions.reveal(path) } label: { Image(systemName: "folder") }
-                    .buttonStyle(.borderless).help("Show in Finder")
-            }
-        }
     }
 }
+
+/// Square icon button on a card surface, with hover and an optional "copied" checkmark.
+private struct DetailActionButton: View {
+    let symbol: String
+    let help: String
+    var copies = false
+    var prominent = false
+    let action: () -> Void
+    @State private var hovering = false
+    @State private var done = false
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        Button {
+            action()
+            guard copies else { return }
+            done = true
+            Task { try? await Task.sleep(for: .seconds(1.2)); done = false }
+        } label: {
+            Image(systemName: done ? "checkmark" : symbol)
+                .contentTransition(.symbolEffect(.replace))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(foreground)
+                .frame(width: prominent ? 44 : 36, height: 32)
+                .background(background, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+    }
+
+    private var foreground: Color {
+        if prominent { return enabled ? .white : .white.opacity(0.6) }
+        if done { return Theme.accent }
+        return enabled ? Color.primary.opacity(0.8) : Color.secondary.opacity(0.5)
+    }
+
+    private var background: Color {
+        if prominent { return Theme.accent.opacity(enabled ? (hovering ? 0.85 : 1) : 0.4) }
+        return hovering && enabled ? Theme.well : Theme.card
+    }
+}
+
+/// Small thumbnail of a reference image; click shows it in Finder.
+private struct DetailReferenceThumb: View {
+    let path: String
+    @State private var image: CGImage?
+
+    var body: some View {
+        Theme.well
+            .frame(width: 44, height: 44)
+            .overlay {
+                if let image {
+                    Image(decorative: image, scale: 1).resizable().scaledToFill()
+                } else {
+                    Image(systemName: "photo").foregroundStyle(.tertiary)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
+            .help((path as NSString).lastPathComponent)
+            .onTapGesture { if ImageLocator.exists(path) { Actions.reveal(path) } }
+            .task(id: path) {
+                let url = URL(fileURLWithPath: path)
+                image = await Task.detached(priority: .utility) { Thumbnails.downsample(url, maxPixel: 120) }.value
+            }
+    }
+}
+
+/// Wrapping row layout for chips.
+struct DetailFlow: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
+        let width = rows.map { $0.width }.max() ?? 0
+        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: proposal.width ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(width: bounds.width, subviews: subviews) {
+            var x = bounds.minX
+            for i in row.indices {
+                let size = subviews[i].sizeThatFits(.unspecified)
+                subviews[i].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: .unspecified)
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = [Row()]
+        for i in subviews.indices {
+            let size = subviews[i].sizeThatFits(.unspecified)
+            let extra = rows[rows.count - 1].indices.isEmpty ? size.width : size.width + spacing
+            if rows[rows.count - 1].width + extra > width, !rows[rows.count - 1].indices.isEmpty {
+                rows.append(Row())
+            }
+            let isFirst = rows[rows.count - 1].indices.isEmpty
+            rows[rows.count - 1].indices.append(i)
+            rows[rows.count - 1].width += isFirst ? size.width : size.width + spacing
+            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+        }
+        return rows
+    }
+}
+
+// MARK: - Large preview
 
 private struct LargePreview: View {
     let ref: ImageRef
     @State private var result: (image: CGImage, kind: SourceKind)?
     @State private var loaded = false
+
+    private let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
 
     var body: some View {
         ZStack {
@@ -151,8 +312,10 @@ private struct LargePreview: View {
                 Image(decorative: result.image, scale: 1)
                     .resizable()
                     .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .frame(maxWidth: .infinity)
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(Color.primary.opacity(0.07)))
+                    .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                    .frame(maxWidth: .infinity, maxHeight: 340)
                     .onTapGesture(count: 2) { Actions.open(ref) }
                     .help("Double-click to open")
                     .overlay(alignment: .bottomLeading) {
@@ -161,19 +324,33 @@ private struct LargePreview: View {
                                 .font(.caption.weight(.medium))
                                 .padding(.horizontal, 8).padding(.vertical, 4)
                                 .background(.regularMaterial, in: Capsule())
-                                .padding(8)
+                                .padding(10)
                         }
                     }
-            } else if loaded {
-                ContentUnavailableView("Deleted", systemImage: "photo.badge.exclamationmark")
-                    .frame(height: 220)
+                    .transition(.opacity)
             } else {
-                ProgressView().frame(height: 220)
+                shape.fill(Theme.well)
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: 320)
+                    .overlay {
+                        if loaded {
+                            VStack(spacing: 6) {
+                                Image(systemName: "photo").font(.system(size: 30, weight: .light))
+                                Text("Deleted").font(.callout)
+                            }
+                            .foregroundStyle(.tertiary)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
             }
         }
         .task(id: ref) {
-            result = await Thumbnails.preview(ref)
-            loaded = true
+            let r = await Thumbnails.preview(ref)
+            withAnimation(.easeOut(duration: 0.18)) {
+                result = r
+                loaded = true
+            }
         }
     }
 

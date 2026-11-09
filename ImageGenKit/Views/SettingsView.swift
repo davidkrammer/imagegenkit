@@ -233,7 +233,8 @@ struct SettingsTasksSection: View {
                 }
             }
             .labelsHidden()
-            .fixedSize()
+            .buttonSizing(.flexible)
+            .frame(width: 170)
         }
     }
 

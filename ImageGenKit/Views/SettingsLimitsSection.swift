@@ -94,7 +94,7 @@ struct SettingsLimitsSection: View {
             }
             SettingsDivider(inset: 58)
             SettingsRow(icon: "bell.badge", title: "When reached",
-                        detail: limits.stopPaid ? "Subscriptions keep working." : "Get a notification.") {
+                        detail: limits.stopPaid ? "Subscriptions keep working" : "Get a notification") {
                 Picker("When reached", selection: stopBinding(limits)) {
                     Text("Warn Me").tag(false)
                     Text("Stop Paid Images").tag(true)

@@ -205,7 +205,7 @@ struct AddProviderPicker: View {
             }
             .scrollContentBackground(.hidden)
             .scrollEdgeEffectStyle(.soft, for: .all)
-            .frame(maxHeight: 226)
+            .frame(maxHeight: 296)
             .fixedSize(horizontal: false, vertical: true)
             .padding(-2)
         } footer: {
@@ -578,7 +578,7 @@ struct AddProviderCustom: View {
         } content: {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(spacing: 0) {
-                    field("Name", text: $name, prompt: "Together AI")
+                    field("Name", text: $name, prompt: "My API")
                     SettingsDivider()
                     field("Base URL", text: $baseURL, prompt: "https://api.example.com/v1")
                     SettingsDivider()

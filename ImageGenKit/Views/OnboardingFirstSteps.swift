@@ -31,7 +31,7 @@ struct OnboardingFirstSteps: View {
                                            done: false, button: "Generate", primary: true, action: generate)
                 }
 
-                Button("Take the tour") { OnboardingStore.show() }
+                Button("Take the Tour") { OnboardingStore.show() }
                     .buttonStyle(.link)
                     .font(.callout)
             }

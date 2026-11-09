@@ -291,7 +291,7 @@ struct OnboardingAgentsStep: View {
                         } else {
                             Button { setUpEverything() } label: {
                                 HStack(spacing: 6) {
-                                    if running { ProgressView().controlSize(.small).tint(.white) }
+                                    if running { ProgressView().controlSize(.small) }
                                     Text(running ? "Setting up…" : "Set up everything")
                                 }
                             }

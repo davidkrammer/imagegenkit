@@ -5,66 +5,73 @@ struct EntryDetailView: View {
     @Environment(LogStore.self) private var store
     @Environment(ConfigStore.self) private var config
     @State private var reference: DetailReference?
+    @State private var promptExpanded = false
+    @State private var copied = false
 
     var body: some View {
         let index = min(store.selectedImageIndex, max(entry.outputs.count - 1, 0))
         let ref: ImageRef? = entry.outputs.isEmpty ? nil : entry.imageRef(index)
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let ref {
-                    LargePreview(ref: ref)
-                    if entry.outputs.count > 1 { strip(selected: index) }
+            VStack(alignment: .leading, spacing: 0) {
+                DetailHero(entry: entry, ref: ref, selected: index) { i in
+                    withAnimation(.easeOut(duration: 0.15)) { store.selectedImageIndex = i }
                 }
 
-                DetailFlow(spacing: 6) {
-                    ProviderBadge(provider: entry.provider)
-                    Pill(text: entry.modelLabel)
-                    Pill(text: entry.sizeLabel)
-                    if let q = entry.param("quality") { Pill(text: q.capitalized) }
-                    if let c = config.cost(entry) {
-                        Pill(text: Format.usd(c, precise: true), color: .primary)
-                    } else {
-                        Pill(text: "Subscription")
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        prompt.galleryEnter(0)
+                        chips.galleryEnter(1)
                     }
-                    Pill(text: Format.seconds(entry.seconds))
+                    actions(ref: ref, index: index).galleryEnter(2)
+                    details.galleryEnter(3)
+                    if !entry.refs.isEmpty { references.galleryEnter(4) }
                 }
-
-                DetailPromptCard(prompt: entry.prompt)
-
-                actions(ref: ref, index: index)
-
-                details
-
-                if !entry.refs.isEmpty { references }
+                .padding(20)
+                .id(entry.id)
             }
-            .padding(20)
         }
         .background(Theme.background)
         .sheet(item: $reference) { ref in
             GenerateView(references: [ref.url])
         }
+        .onChange(of: entry.id) { promptExpanded = false }
     }
 
     // MARK: Pieces
 
-    private func strip(selected: Int) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(entry.outputs.indices, id: \.self) { i in
-                    ThumbnailView(ref: entry.imageRef(i))
-                        .frame(width: 52, height: 52)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(i == selected ? Theme.accent : Color.primary.opacity(0.08),
-                                              lineWidth: i == selected ? 2.5 : 1)
-                        }
-                        .opacity(i == selected ? 1 : 0.75)
-                        .contentShape(Rectangle())
-                        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { store.selectedImageIndex = i } }
+    private var prompt: some View {
+        let long = entry.prompt.count > 160
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(entry.prompt.isEmpty ? "No prompt" : entry.prompt)
+                .font(.system(size: 15, weight: .semibold))
+                .lineSpacing(2)
+                .foregroundStyle(entry.prompt.isEmpty ? .secondary : .primary)
+                .lineLimit(promptExpanded ? nil : 4)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if long {
+                Button(promptExpanded ? "Less" : "More") {
+                    withAnimation(.smooth(duration: 0.25)) { promptExpanded.toggle() }
                 }
+                .buttonStyle(.link)
+                .font(.callout)
             }
-            .padding(2)
+        }
+    }
+
+    private var chips: some View {
+        DetailFlow(spacing: 6) {
+            ProviderBadge(provider: entry.provider)
+            Pill(text: entry.modelLabel)
+            Pill(text: entry.sizeLabel)
+            if let q = entry.param("quality") { Pill(text: q.capitalized) }
+            if let c = config.cost(entry) {
+                Pill(text: Format.usd(c, precise: true), color: Theme.accent)
+            } else {
+                Pill(text: "Subscription")
+            }
+            if entry.seconds != nil { Pill(text: Format.seconds(entry.seconds)) }
         }
     }
 
@@ -73,66 +80,97 @@ struct EntryDetailView: View {
         let fileExists = path.map(ImageLocator.exists) ?? false
         let referenceSource: URL? = ref.flatMap { ImageLocator.source(for: $0)?.url ?? ImageLocator.existingThumb(for: $0) }
         return HStack(spacing: 8) {
-            DetailActionButton(symbol: "arrow.up.forward.app", help: "Open") {
-                if let ref { Actions.open(ref) }
+            ViewThatFits(in: .horizontal) {
+                referenceButton("Use as Reference", source: referenceSource)
+                referenceButton("Reference", source: referenceSource)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button { if let ref { Actions.open(ref) } } label: {
+                Label("Open", systemImage: "arrow.up.forward.app").labelStyle(.iconOnly).frame(width: 18)
             }
             .disabled(ref == nil)
-            DetailActionButton(symbol: "folder", help: "Show in Finder") {
-                if let path { Actions.reveal(path) }
+            .keyboardShortcut("o", modifiers: .command)
+            .help("Open (⌘O)")
+
+            Button { if let path { Actions.reveal(path) } } label: {
+                Label("Show in Finder", systemImage: "folder").labelStyle(.iconOnly).frame(width: 18)
             }
             .disabled(!fileExists)
-            DetailActionButton(symbol: "text.quote", help: "Copy prompt", copies: true) {
-                Actions.copy(entry.prompt)
+            .help("Show in Finder")
+
+            Button { copy(entry.prompt) } label: {
+                Label("Copy Prompt", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .labelStyle(.iconOnly)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 18)
             }
-            DetailActionButton(symbol: "terminal", help: "Copy command", copies: true) {
-                Actions.copy(entry.rerunCommand)
-            }
-            Spacer(minLength: 0)
-            DetailActionButton(symbol: "wand.and.sparkles", help: "Use as reference", prominent: true) {
-                reference = referenceSource.map(DetailReference.init)
-            }
-            .disabled(referenceSource == nil)
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+            .help("Copy prompt (⇧⌘C)")
         }
+        .buttonStyle(.bordered)
+    }
+
+    private func referenceButton(_ title: String, source: URL?) -> some View {
+        Button { reference = source.map(DetailReference.init) } label: {
+            Label(title, systemImage: "wand.and.sparkles")
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(source == nil)
+        .help("Generate with this image as a reference")
+    }
+
+    private func copy(_ text: String) {
+        Actions.copy(text)
+        withAnimation { copied = true }
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            withAnimation { copied = false }
+        }
+    }
+
+    private var detailRows: [DetailRowData] {
+        var rows: [DetailRowData] = [
+            .init(symbol: "calendar", label: "Date", value: entry.date.formatted(date: .abbreviated, time: .shortened)),
+            .init(symbol: "folder", label: "Project", value: entry.project,
+                  detail: (entry.cwd as NSString).abbreviatingWithTildeInPath),
+        ]
+        if let c = entry.caller, !c.label.isEmpty {
+            rows.append(.init(symbol: "person", label: "Started by", value: c.label))
+        }
+        if let u = entry.openAIUsage {
+            rows.append(.init(symbol: "number", label: "Tokens",
+                              value: "\(Format.tokens(u.inputTokens)) in · \(Format.tokens(u.outputTokens)) out"))
+        }
+        if let note = missingNote {
+            rows.append(.init(symbol: "exclamationmark.triangle", label: "File", value: note, warning: true))
+        }
+        return rows
     }
 
     private var details: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
-            row("Date", entry.date.formatted(date: .abbreviated, time: .shortened))
-            row("Project", entry.project)
-            if let c = entry.caller, !c.label.isEmpty { row("Started by", c.label) }
-            if let u = entry.openAIUsage {
-                row("Tokens", "\(Format.tokens(u.inputTokens)) in · \(Format.tokens(u.outputTokens)) out")
-            }
-            row("Folder", (entry.cwd as NSString).abbreviatingWithTildeInPath, middle: true)
-            if let note = missingNote {
-                row("File", note)
+        let rows = detailRows
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                if i > 0 { Divider().padding(.leading, 52) }
+                DetailRow(row: row)
             }
         }
-        .font(.callout)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 2)
-    }
-
-    private func row(_ label: String, _ value: String, middle: Bool = false) -> some View {
-        GridRow(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(.tertiary).gridColumnAlignment(.leading)
-            Text(value)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .lineLimit(middle ? 1 : 2)
-                .truncationMode(middle ? .middle : .tail)
-                .help(value)
-        }
+        .padding(.vertical, 4)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.06)))
+        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
     }
 
     private var references: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("References").font(.callout).foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("References").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             DetailFlow(spacing: 8) {
                 ForEach(entry.refs, id: \.self) { DetailReferenceThumb(path: $0) }
             }
         }
-        .padding(.horizontal, 2)
     }
 
     private var missingNote: String? {
@@ -151,68 +189,116 @@ private struct DetailReference: Identifiable {
     var id: String { url.absoluteString }
 }
 
-// MARK: - Components
+// MARK: - Rows
 
-/// Prompt text in a card, with a copy icon.
-private struct DetailPromptCard: View {
-    let prompt: String
-    @State private var copied = false
+private struct DetailRowData {
+    let symbol: String
+    let label: String
+    let value: String
+    var detail: String?
+    var warning = false
+}
+
+/// Icon badge + small label + value, like the tour's numbered points.
+private struct DetailRow: View {
+    let row: DetailRowData
 
     var body: some View {
-        Text(prompt)
-            .font(.callout)
-            .lineSpacing(2)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 22)
-            .card(padding: 14, radius: 14)
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    Actions.copy(prompt)
-                    copied = true
-                    Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
-                } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .contentTransition(.symbolEffect(.replace))
+        HStack(alignment: .center, spacing: 12) {
+            IconBadge(symbol: row.symbol, color: row.warning ? .orange : Theme.accent, size: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.label).font(.caption).foregroundStyle(.secondary)
+                Text(row.value)
+                    .font(.system(size: 13))
+                    .foregroundStyle(row.warning ? .orange : .primary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                if let detail = row.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(detail)
                 }
-                .buttonStyle(.borderless)
-                .help("Copy prompt")
-                .padding(8)
             }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 
-/// Square icon button on a card surface, with hover and an optional "copied" checkmark.
-private struct DetailActionButton: View {
-    let symbol: String
-    let help: String
-    var copies = false
-    var prominent = false
+// MARK: - Hero
+
+/// The image on the tour's soft accent wash, with the other images of the run below it.
+private struct DetailHero: View {
+    let entry: LogEntry
+    let ref: ImageRef?
+    let selected: Int
+    let select: (Int) -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if let ref {
+                LargePreview(ref: ref)
+                    .frame(height: 260)
+                if entry.outputs.count > 1 { strip }
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(.tertiary)
+                    .frame(height: 160)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 22)
+        .frame(maxWidth: .infinity)
+        .background(GalleryWash())
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.07)).frame(height: 1) }
+    }
+
+    private var strip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(entry.outputs.indices, id: \.self) { i in
+                    DetailStripThumb(ref: entry.imageRef(i), selected: i == selected) { select(i) }
+                }
+            }
+            .padding(4)
+        }
+        .scrollClipDisabled()
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct DetailStripThumb: View {
+    let ref: ImageRef
+    let selected: Bool
     let action: () -> Void
     @State private var hovering = false
-    @State private var done = false
-    @Environment(\.isEnabled) private var enabled
+
+    private let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
 
     var body: some View {
-        let button = Button {
-            action()
-            guard copies else { return }
-            done = true
-            Task { try? await Task.sleep(for: .seconds(1.2)); done = false }
-        } label: {
-            Label(help, systemImage: done ? "checkmark" : symbol)
-                .labelStyle(.iconOnly)
-                .contentTransition(.symbolEffect(.replace))
-                .frame(minWidth: 20)
-        }
-        .help(help)
-        if prominent {
-            button.buttonStyle(.borderedProminent)
-        } else {
-            button.buttonStyle(.bordered)
-        }
+        ThumbnailView(ref: ref)
+            .frame(width: 44, height: 44)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.08)))
+            .overlay {
+                if selected { shape.inset(by: -3).strokeBorder(Theme.accent, lineWidth: 2) }
+            }
+            .opacity(selected || hovering ? 1 : 0.7)
+            .shadow(color: .black.opacity(0.1), radius: 3, y: 1)
+            .contentShape(shape)
+            .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
+            .onTapGesture(perform: action)
+            .animation(.easeOut(duration: 0.15), value: selected)
     }
 }
+
+// MARK: - Components
 
 /// Small thumbnail of a reference image; click shows it in Finder.
 private struct DetailReferenceThumb: View {
@@ -221,7 +307,7 @@ private struct DetailReferenceThumb: View {
 
     var body: some View {
         Theme.well
-            .frame(width: 44, height: 44)
+            .frame(width: 52, height: 52)
             .overlay {
                 if let image {
                     Image(decorative: image, scale: 1).resizable().scaledToFill()
@@ -229,8 +315,8 @@ private struct DetailReferenceThumb: View {
                     Image(systemName: "photo").foregroundStyle(.tertiary)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
             .help((path as NSString).lastPathComponent)
             .onTapGesture { if ImageLocator.exists(path) { Actions.reveal(path) } }
             .task(id: path) {
@@ -290,7 +376,7 @@ private struct LargePreview: View {
     @State private var result: (image: CGImage, kind: SourceKind)?
     @State private var loaded = false
 
-    private let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+    private let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
 
     var body: some View {
         ZStack {
@@ -299,9 +385,8 @@ private struct LargePreview: View {
                     .resizable()
                     .scaledToFit()
                     .clipShape(shape)
-                    .overlay(shape.strokeBorder(Color.primary.opacity(0.07)))
-                    .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-                    .frame(maxWidth: .infinity, maxHeight: 340)
+                    .overlay(shape.strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
                     .onTapGesture(count: 2) { Actions.open(ref) }
                     .help("Double-click to open")
                     .overlay(alignment: .bottomLeading) {
@@ -314,14 +399,15 @@ private struct LargePreview: View {
                         }
                     }
                     .transition(.opacity)
+                    .id(ref)
             } else {
                 shape.fill(Theme.well)
                     .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: 320)
+                    .overlay(shape.strokeBorder(Color.primary.opacity(0.06)))
                     .overlay {
                         if loaded {
                             VStack(spacing: 6) {
-                                Image(systemName: "photo").font(.system(size: 30, weight: .light))
+                                Image(systemName: "photo.badge.exclamationmark").font(.system(size: 28, weight: .light))
                                 Text("Deleted").font(.callout)
                             }
                             .foregroundStyle(.tertiary)
@@ -331,6 +417,7 @@ private struct LargePreview: View {
                     }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: ref) {
             let r = await Thumbnails.preview(ref)
             withAnimation(.easeOut(duration: 0.18)) {

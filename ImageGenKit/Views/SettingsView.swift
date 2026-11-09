@@ -303,9 +303,7 @@ struct SettingsAboutSection: View {
     var body: some View {
         SettingsSection(title: "About") {
             HStack(spacing: 12) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 40, height: 40)
+                AppIconView(size: 40)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("ImageGenKit").font(.body.weight(.semibold))
                     Text("Version \(updater.currentVersion)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
@@ -354,7 +352,7 @@ struct SettingsAboutSection: View {
             }
         case .available(let v):
             Button("Update to \(v)") { Task { await updater.install() } }
-                .buttonStyle(PrimaryButtonStyle())
+                .buttonStyle(.borderedProminent)
         case .downloading, .installing:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)

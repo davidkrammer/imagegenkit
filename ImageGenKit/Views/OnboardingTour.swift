@@ -153,16 +153,11 @@ struct OnboardingTour: View {
     }
 
     private var closeButton: some View {
-        Button { close(nil) } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
-                .background(.regularMaterial, in: Circle())
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut(.cancelAction)
+        Button("Close", systemImage: "xmark") { close(nil) }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .keyboardShortcut(.cancelAction)
         .help("Close")
         .padding(12)
     }
@@ -173,30 +168,22 @@ struct OnboardingTour: View {
             Spacer(minLength: 8)
             if step == .done {
                 Button("Settings") { close(.settings) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
+                    .controlSize(.large)
                 Button("Open Gallery") { close(.gallery) }
                     .controlSize(.large)
-                    .buttonBorderShape(.capsule)
                 Button { close(.generate) } label: { Label("Generate your first image", systemImage: "sparkles") }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
             } else {
                 Button(step == .welcome ? "Skip" : "Back") {
                     if step == .welcome { close(nil) } else { go(step.rawValue - 1) }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                Button { go(step.rawValue + 1) } label: {
-                    HStack(spacing: 5) {
-                        Text("Next")
-                        Image(systemName: "arrow.right").font(.system(size: 12, weight: .bold))
-                    }
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .keyboardShortcut(.defaultAction)
+                .controlSize(.large)
+                Button("Next") { go(step.rawValue + 1) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
             }
         }
         .padding(.horizontal, 24)

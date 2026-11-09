@@ -172,23 +172,26 @@ private struct SidebarColumn: View {
                 .padding(.top, 6)
                 .padding(.bottom, 18)
 
-            VStack(spacing: 2) {
+            List(selection: Binding(ignoringNil: $item)) {
                 ForEach(SidebarItem.allCases) { entry in
-                    SidebarRow(item: entry, selected: item == entry,
-                               badge: entry == .settings && (installer.needsAttention || updater.updateAvailable)) {
-                        item = entry
-                    }
+                    Label(entry.rawValue, systemImage: entry.icon)
+                        .badge(entry == .settings && (installer.needsAttention || updater.updateAvailable) ? Text("1") : nil)
+                        .tag(entry)
                 }
             }
-            .padding(.horizontal, 10)
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .scrollDisabled(true)
+            .frame(height: CGFloat(SidebarItem.allCases.count) * 34 + 12)
 
             Spacer(minLength: 16)
 
             VStack(spacing: 10) {
                 Button { showGenerate = true } label: {
-                    Label("Generate", systemImage: "sparkles")
+                    Label("Generate", systemImage: "sparkles").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(PrimaryButtonStyle(fullWidth: true))
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .keyboardShortcut("n", modifiers: .command)
                 .help("Generate an image (⌘N)")
 
@@ -214,56 +217,10 @@ private struct SidebarColumn: View {
 private struct SidebarIdentity: View {
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 26, height: 26)
-                .background(
-                    LinearGradient(colors: [Color(light: 0x7B6CF6, dark: 0x8B7DFA), Color(light: 0x4F46E5, dark: 0x5B52E8),
-                                            Color(light: 0x2A78D6, dark: 0x3987E5)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 7.5))
-                .shadow(color: Theme.accent.opacity(0.3), radius: 3, y: 1)
+            AppIconView(size: 30)
             Text("ImageGenKit")
                 .font(.system(size: 14, weight: .semibold))
         }
-    }
-}
-
-private struct SidebarRow: View {
-    let item: SidebarItem
-    let selected: Bool
-    let badge: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: item.icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(selected ? Theme.accent : .secondary)
-                    .frame(width: 20)
-                Text(item.rawValue)
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-                if badge {
-                    Circle().fill(.orange).frame(width: 7, height: 7)
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(selected ? Theme.accent.opacity(0.14) : hovering ? Color.primary.opacity(0.05) : .clear))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .animation(.easeOut(duration: 0.15), value: selected)
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -273,16 +230,16 @@ private struct SidebarProviderFooter: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Circle().fill(ready > 0 ? Color.green : Color.orange).frame(width: 6, height: 6)
+            Label {
                 Text(ready == 0 ? "No provider set up" : ready == 1 ? "1 provider ready" : "\(ready) providers ready")
+            } icon: {
+                Circle().fill(ready > 0 ? Color.green : Color.orange).frame(width: 6, height: 6)
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
         .help("Providers")
     }
 }
@@ -297,5 +254,12 @@ private struct SearchIf: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+extension Binding where Value == SidebarItem? {
+    /// Adapts a non-optional selection for `List(selection:)`, ignoring deselection.
+    init(ignoringNil base: Binding<SidebarItem>) {
+        self.init(get: { base.wrappedValue }, set: { if let v = $0 { base.wrappedValue = v } })
     }
 }

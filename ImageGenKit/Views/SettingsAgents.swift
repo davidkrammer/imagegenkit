@@ -137,7 +137,7 @@ struct SettingsAgentsSection: View {
         if busy.contains(id) {
             ProgressView().controlSize(.small)
         } else if prominent {
-            Button(title) { run(id, action) }.buttonStyle(PrimaryButtonStyle())
+            Button(title) { run(id, action) }.buttonStyle(.borderedProminent)
         } else {
             Button(title) { run(id, action) }
         }

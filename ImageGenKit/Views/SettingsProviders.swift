@@ -15,7 +15,7 @@ struct SettingsProvidersSection: View {
         let enabled = config.enabled(ready: { status.state($0).isReady })
         SettingsSection(title: "Providers") {
             Button { sheet = .add } label: { Label("Add Provider", systemImage: "plus") }
-                .buttonStyle(PrimaryButtonStyle())
+                .buttonStyle(.borderedProminent)
                 .controlSize(.small)
         } content: {
             if enabled.isEmpty {

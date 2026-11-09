@@ -192,14 +192,14 @@ struct OnboardingDemoStep: View {
                 Spacer(minLength: 6)
                 if phase == .done {
                     Button { playAgain() } label: { Label("Play again", systemImage: "arrow.counterclockwise") }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent)
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 } else {
                     Button {
                         userActed()
                         generate()
                     } label: { Label("Generate", systemImage: "sparkles") }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent)
                         .disabled(phase == .working)
                         .opacity(phase == .working ? 0.6 : 1)
                         .onboardingTarget(.generate)
@@ -444,23 +444,15 @@ private struct OnboardingChip<Label: View>: View {
     let selected: Bool
     @ViewBuilder var label: Label
     let action: () -> Void
-    @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            label
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(selected ? Theme.accent : .primary)
-                .padding(.horizontal, 10)
-                .frame(height: 26)
-                .background(Capsule().fill(selected ? Theme.accent.opacity(0.14)
-                    : hovering ? Color.primary.opacity(0.08) : Theme.well))
-                .overlay(Capsule().strokeBorder(selected ? Theme.accent.opacity(0.6) : .clear, lineWidth: 1))
-                .contentShape(Capsule())
+        let button = Button(action: action) { label }
+            .controlSize(.small)
+        if selected {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }
 

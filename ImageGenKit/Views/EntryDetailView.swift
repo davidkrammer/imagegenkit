@@ -174,10 +174,8 @@ private struct DetailPromptCard: View {
                 } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
                         .contentTransition(.symbolEffect(.replace))
-                        .foregroundStyle(copied ? Theme.accent : .secondary)
-                        .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .help("Copy prompt")
                 .padding(8)
             }
@@ -196,35 +194,24 @@ private struct DetailActionButton: View {
     @Environment(\.isEnabled) private var enabled
 
     var body: some View {
-        Button {
+        let button = Button {
             action()
             guard copies else { return }
             done = true
             Task { try? await Task.sleep(for: .seconds(1.2)); done = false }
         } label: {
-            Image(systemName: done ? "checkmark" : symbol)
+            Label(help, systemImage: done ? "checkmark" : symbol)
+                .labelStyle(.iconOnly)
                 .contentTransition(.symbolEffect(.replace))
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(foreground)
-                .frame(width: prominent ? 44 : 36, height: 32)
-                .background(background, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
-                .contentShape(Rectangle())
+                .frame(minWidth: 20)
         }
-        .buttonStyle(.plain)
+        .controlSize(.large)
         .help(help)
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
-    }
-
-    private var foreground: Color {
-        if prominent { return enabled ? .white : .white.opacity(0.6) }
-        if done { return Theme.accent }
-        return enabled ? Color.primary.opacity(0.8) : Color.secondary.opacity(0.5)
-    }
-
-    private var background: Color {
-        if prominent { return Theme.accent.opacity(enabled ? (hovering ? 0.85 : 1) : 0.4) }
-        return hovering && enabled ? Theme.well : Theme.card
+        if prominent {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
+        }
     }
 }
 

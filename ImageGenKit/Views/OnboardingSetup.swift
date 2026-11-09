@@ -89,7 +89,7 @@ struct OnboardingProviderStep: View {
                         .font(.system(size: 13, weight: .semibold))
                 } else {
                     Button { useFound() } label: { Label("Use \(pending.count == 1 ? "this" : "these")", systemImage: "checkmark") }
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent)
                 }
                 Button("Add another") { open(.add) }.buttonStyle(.link)
             }
@@ -295,7 +295,7 @@ struct OnboardingAgentsStep: View {
                                     Text(running ? "Setting up…" : "Set up everything")
                                 }
                             }
-                            .buttonStyle(PrimaryButtonStyle())
+                            .buttonStyle(.borderedProminent)
                             .disabled(running || checking)
                         }
                         if installer.python == .missing {

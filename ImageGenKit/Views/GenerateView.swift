@@ -129,19 +129,14 @@ struct GenerateView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            IconBadge(symbol: "sparkles", size: 28)
+            AppIconView(size: 30)
             Text("Generate").font(.title3.weight(.semibold))
             Spacer()
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    .background(Theme.well, in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
+            Button("Close", systemImage: "xmark") { dismiss() }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .keyboardShortcut(.cancelAction)
             .help("Close")
         }
         .padding(.horizontal, 24)
@@ -179,14 +174,8 @@ struct GenerateView: View {
                 if refs.isEmpty {
                     Button(action: pickReferences) {
                         Label("Add images", systemImage: "photo.badge.plus")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
-                            .frame(height: 30)
-                            .background(Theme.well, in: Capsule())
-                            .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .help("Add reference images, or drop them here")
                 } else if refs.count < 8 {
                     GenerateAddTile(action: pickReferences)
@@ -257,19 +246,9 @@ struct GenerateView: View {
                 Button {
                     showMore.toggle()
                 } label: {
-                    HStack(spacing: 5) {
-                        Text("More")
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .rotationEffect(.degrees(showMore ? 180 : 0))
-                    }
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(showMore ? Theme.accent : .secondary)
-                    .padding(.horizontal, 12)
-                    .frame(height: 32)
-                    .contentShape(Capsule())
+                    Label("More", systemImage: "slider.horizontal.3")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
                 .popover(isPresented: $showMore, arrowEdge: .bottom) { moreOptions(p) }
                 .help("More options")
             }
@@ -349,24 +328,19 @@ struct GenerateView: View {
         let placeholder = GenerateSpec.defaultModel(p, config: config, editing: !refs.isEmpty)
         return HStack(spacing: 6) {
             TextField("Model", text: $model, prompt: Text(placeholder.isEmpty ? "Default" : placeholder))
-                .textFieldStyle(.plain)
+                .textFieldStyle(.roundedBorder)
                 .font(.system(.callout, design: .monospaced))
-                .padding(.horizontal, 12)
-                .frame(width: 270, height: 30)
-                .background(Theme.well, in: Capsule())
+                .frame(width: 270)
             if !suggestions.isEmpty {
                 Menu {
                     Button("Default") { model = "" }
                     Divider()
                     ForEach(suggestions, id: \.self) { m in Button(m) { model = m } }
                 } label: {
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
-                        .frame(width: 30, height: 30)
-                        .background(Theme.well, in: Circle())
+                    Image(systemName: "list.bullet")
                 }
                 .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
+                .buttonStyle(.bordered)
                 .fixedSize()
                 .help("Models")
             }
@@ -382,12 +356,8 @@ struct GenerateView: View {
         } else {
             Button { mask = GenerateFilePicker.images(multiple: false).first } label: {
                 Label("Choose…", systemImage: "square.dashed")
-                    .padding(.horizontal, 12)
-                    .frame(height: 30)
-                    .background(Theme.well, in: Capsule())
-                    .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
             .help("PNG with transparent areas to change")
         }
     }
@@ -406,10 +376,9 @@ struct GenerateView: View {
                 Button {
                     phase = .compose
                 } label: {
-                    Label("Options", systemImage: "slider.horizontal.3").font(.callout.weight(.medium))
+                    Label("Options", systemImage: "slider.horizontal.3")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.accent)
+                .buttonStyle(.bordered)
             }
             let rows = urls.count <= 2 ? [Array(urls)] : [Array(urls.prefix(2)), Array(urls.dropFirst(2))]
             VStack(spacing: 14) {
@@ -455,23 +424,20 @@ struct GenerateView: View {
             }
             Spacer(minLength: 8)
             Button(action: generate) {
-                HStack(spacing: 8) {
-                    if running {
-                        ProgressView().controlSize(.small).tint(.white)
+                if running {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
                         Text("Generating")
-                    } else {
-                        Image(systemName: "sparkles")
-                        Text(phase == .compose ? "Generate" : "Generate Again")
                     }
-                    Text("⌘↩").font(.callout).opacity(0.65)
+                } else {
+                    Label(phase == .compose ? "Generate" : "Generate Again", systemImage: "sparkles")
                 }
-                .padding(.horizontal, 6)
-                .frame(height: 22)
             }
-            .buttonStyle(PrimaryButtonStyle())
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .keyboardShortcut(.return, modifiers: .command)
+            .help("Generate (⌘↩)")
             .disabled(!canGenerate)
-            .opacity(canGenerate || running ? 1 : 0.45)
         }
         .font(.callout)
         .padding(.horizontal, 24)

@@ -274,23 +274,18 @@ struct AddProviderSetup: View {
 
     private var keyField: some View {
         HStack(spacing: 8) {
-            Image(systemName: "key.fill").foregroundStyle(.secondary)
             SecureField("API key", text: $key, prompt: Text("Paste your API key"))
-                .textFieldStyle(.plain)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
                 .focused($keyFocused)
                 .onSubmit(connect)
-            Button("Paste") {
+            Button("Paste", systemImage: "doc.on.clipboard") {
                 if let s = NSPasteboard.general.string(forType: .string) {
                     key = s.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
-            .buttonStyle(.borderless)
+            .controlSize(.large)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 38)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .strokeBorder(keyFocused ? Theme.accent.opacity(0.7) : Color.primary.opacity(0.1), lineWidth: keyFocused ? 1.5 : 1))
     }
 
     @ViewBuilder
@@ -322,19 +317,19 @@ struct AddProviderSetup: View {
                 let ready = status.state(info.id).isReady
                 if !ready { Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction) }
                 Button("Done") { finishLogin() }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!ready)
                     .opacity(ready ? 1 : 0.5)
             } else if phase == .success {
                 Button("Done") { dismiss() }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             } else {
                 let empty = key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Connect", action: connect)
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(empty || phase == .working)
                     .opacity(empty || phase == .working ? 0.5 : 1)
@@ -540,11 +535,11 @@ struct AddProviderCustom: View {
             HStack {
                 Spacer()
                 if phase == .success {
-                    Button("Done") { dismiss() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+                    Button("Done") { dismiss() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
                 } else {
                     Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                     Button(editing == nil ? "Connect" : "Save", action: save)
-                        .buttonStyle(PrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.defaultAction)
                         .disabled(!valid || phase == .working)
                         .opacity(!valid || phase == .working ? 0.5 : 1)

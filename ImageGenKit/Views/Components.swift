@@ -211,24 +211,6 @@ struct DestructiveLabel: View {
 
 // MARK: - Design system (shared by every screen)
 
-/// The main call-to-action button: accent gradient capsule.
-struct PrimaryButtonStyle: ButtonStyle {
-    var fullWidth = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.body.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
-            .background(Theme.accent, in: Capsule())
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
 /// Small capsule label, e.g. "Beta" or a size.
 struct Pill: View {
     let text: String
@@ -266,5 +248,18 @@ extension View {
             .background(Theme.card, in: RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.primary.opacity(0.06)))
             .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+    }
+}
+
+/// The real app icon (a rendered copy is bundled; Icon Composer icons don't reach NSApp.applicationIconImage at small sizes).
+struct AppIconView: View {
+    var size: CGFloat = 30
+
+    var body: some View {
+        Image(nsImage: Bundle.main.image(forResource: "app-icon") ?? NSApp.applicationIconImage)
+            .resizable()
+            .interpolation(.high)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }

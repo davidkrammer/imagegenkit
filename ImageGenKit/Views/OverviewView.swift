@@ -373,7 +373,7 @@ private struct OverviewMonths: View {
                 Button(showAll ? "Show less" : "Show all") {
                     withAnimation(.easeOut(duration: 0.2)) { showAll.toggle() }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.link)
                 .font(.callout)
                 .foregroundStyle(Theme.accent)
                 .padding(.top, 8)

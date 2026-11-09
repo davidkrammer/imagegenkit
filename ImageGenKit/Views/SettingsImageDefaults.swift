@@ -126,11 +126,9 @@ struct SettingsProviderImageRow: View {
         let builtin = (editing ? provider.editModel : nil) ?? provider.model ?? ""
         return HStack(spacing: 6) {
             TextField(key, text: binding, prompt: Text(builtin.isEmpty ? "Default" : builtin))
-                .textFieldStyle(.plain)
+                .textFieldStyle(.roundedBorder)
                 .font(.callout.monospaced())
-                .padding(.horizontal, 10)
-                .frame(width: 230, height: 28)
-                .background(Theme.well, in: RoundedRectangle(cornerRadius: 8))
+                .frame(width: 230)
             if !suggestions.isEmpty {
                 Menu {
                     if !hasModelFallback {
@@ -143,16 +141,10 @@ struct SettingsProviderImageRow: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(Theme.well, in: RoundedRectangle(cornerRadius: 8))
-                        .contentShape(Rectangle())
+                    Image(systemName: "list.bullet")
                 }
                 .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
+                .buttonStyle(.bordered)
                 .fixedSize()
                 .help("Models")
             }

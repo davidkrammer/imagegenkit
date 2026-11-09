@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Overview's empty state: three numbered first steps that tick off as they're done.
@@ -16,11 +17,7 @@ struct OnboardingFirstSteps: View {
         ScrollView {
             VStack(spacing: 22) {
                 VStack(spacing: 14) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 60, height: 60)
-                        .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 17))
+                    AppIconView(size: 72)
                     Text("Let's make your first image")
                         .font(.system(size: 22, weight: .semibold))
                 }
@@ -78,11 +75,10 @@ private struct OnboardingFirstStepRow: View {
                 Text("Done").font(.callout.weight(.medium)).foregroundStyle(.green)
             } else if primary {
                 Button(action: action) { Label(button, systemImage: "sparkles") }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
             } else {
                 Button(button, action: action)
                     .controlSize(.large)
-                    .buttonBorderShape(.capsule)
             }
         }
         .card(padding: 14)

@@ -19,66 +19,41 @@ struct GenerateField<Content: View>: View {
     }
 }
 
-/// Capsule segmented control with a sliding selection.
+/// Native segmented control.
 struct GenerateSegmented: View {
     let options: [String]
     @Binding var selection: String
     var label: (String) -> String = { $0 }
-    @Namespace private var ns
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options, id: \.self) { option in
-                let on = option == selection
-                Button {
-                    withAnimation(.snappy(duration: 0.22)) { selection = option }
-                } label: {
-                    Text(label(option))
-                        .font(.callout.weight(on ? .semibold : .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(on ? Color.primary : Color.secondary)
-                        .padding(.horizontal, 11)
-                        .frame(minWidth: 36, minHeight: 26)
-                        .background {
-                            if on {
-                                Capsule().fill(GenerateColors.raised)
-                                    .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
-                                    .matchedGeometryEffect(id: "sel", in: ns)
-                            }
-                        }
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
+        Picker("", selection: $selection) {
+            ForEach(options, id: \.self) { Text(label($0)).tag($0) }
         }
-        .padding(3)
-        .background(Theme.well, in: Capsule())
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
     }
 }
 
-/// Provider choice chip.
+/// Provider choice: a native button, prominent when selected.
 struct GenerateProviderChip: View {
     let provider: ProviderInfo
     let selected: Bool
     let action: () -> Void
-    @State private var hover = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                Circle().fill(provider.color).frame(width: 8, height: 8)
-                Text(provider.label).font(.callout.weight(.medium))
+        let button = Button(action: action) {
+            Label {
+                Text(provider.label)
+            } icon: {
+                Circle().fill(selected ? Color.white : provider.color).frame(width: 8, height: 8)
             }
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .foregroundStyle(selected ? Theme.accent : Color.primary)
-            .background(selected ? Theme.accent.opacity(0.12) : (hover ? Theme.well : Theme.card), in: Capsule())
-            .overlay(Capsule().strokeBorder(selected ? Theme.accent.opacity(0.55) : Color.primary.opacity(0.08)))
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.15), value: selected)
+        if selected {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
+        }
     }
 }
 
@@ -109,34 +84,17 @@ struct GenerateAspectShape: View {
     }
 }
 
-/// Aspect ratio menu that looks like the segmented controls.
+/// Aspect ratio pop-up menu.
 struct GenerateAspectMenu: View {
     let options: [String]
     @Binding var selection: String
 
     var body: some View {
-        Menu {
-            Picker("Aspect", selection: $selection) {
-                ForEach(options, id: \.self) { a in
-                    Text(a).tag(a)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } label: {
-            HStack(spacing: 7) {
-                GenerateAspectShape(aspect: selection)
-                Text(selection).font(.callout.weight(.semibold)).monospacedDigit()
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .background(Theme.well, in: Capsule())
-            .contentShape(Capsule())
+        Picker("Aspect", selection: $selection) {
+            ForEach(options, id: \.self) { Text($0).tag($0) }
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
+        .pickerStyle(.menu)
+        .labelsHidden()
         .fixedSize()
     }
 }
@@ -264,19 +222,11 @@ struct GenerateResultTile: View {
 
     private func action(_ title: String, _ icon: String, _ run: @escaping () -> Void) -> some View {
         Button(action: run) {
-            Group {
-                if compact {
-                    Image(systemName: icon).frame(width: 30, height: 26)
-                } else {
-                    Label(title, systemImage: icon).padding(.horizontal, 10).frame(height: 26)
-                }
-            }
-            .font(.callout.weight(.medium))
-            .contentTransition(.symbolEffect(.replace))
-            .background(Theme.well, in: Capsule())
-            .contentShape(Capsule())
+            Label(title, systemImage: icon)
+                .labelStyle(compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
+                .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
         .help(title)
     }
 }
@@ -339,4 +289,11 @@ struct GenerateTintedIconLabelStyle: LabelStyle {
             configuration.title
         }
     }
+}
+
+/// Type-erased label style (switch icon-only vs title+icon at runtime).
+struct AnyLabelStyle: LabelStyle {
+    private let make: (Configuration) -> AnyView
+    init<S: LabelStyle>(_ style: S) { make = { AnyView(style.makeBody(configuration: $0)) } }
+    func makeBody(configuration: Configuration) -> some View { make(configuration) }
 }

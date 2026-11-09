@@ -24,7 +24,8 @@
 - **Or bring an API key.** OpenAI, Google Gemini, xAI, OpenRouter, Recraft, Together AI, fal.ai, or any OpenAI-compatible API, each with a step-by-step guide to get a key. Keys stay in your macOS Keychain.
 - **Generate by hand.** Write a prompt, add reference images, pick a provider, and set only the options that provider supports.
 - **Gallery and history.** Everything you or your agents made, with prompts, sizes, costs and files. Use any image as a reference for the next one.
-- **Usage and costs** per day, month, provider and project.
+- **Usage and costs** per day, month, provider and project, plus a **menu bar** item with this month's spend, per-provider bars and recent images.
+- **Monthly limits.** Set a spend or image limit. You get a notice at 80 % and 100 %, and if you choose "Stop paid images", paid providers pause until next month while your subscriptions keep working, for you and for your agents.
 - **Settings per provider.** Model, quality, size, background and format for each provider, plus "Use for": which provider makes drafts, finals, edits and transparent PNGs. If one isn't set up, the next one in your list is used.
 - **For AI agents.** Installs the `imagegenkit` command and a skill for Claude Code and Codex, so your agent makes images that follow your settings.
 - **Stays up to date.** The app updates itself from GitHub, and the provider list updates without a new app version.
@@ -77,6 +78,7 @@ imagegenkit transparent "flat sticker of a smiling sun" -o sun.png
 imagegenkit codex "..."                        # one provider directly (openai, grok, codex, gemini, ...)
 imagegenkit providers                          # what's set up, order, task routing
 imagegenkit check                              # live check of keys and logins
+imagegenkit usage                              # this month's spend, images and limits
 imagegenkit config set provider_defaults.openai.quality high
 ```
 

@@ -3,7 +3,7 @@ name: imagegenkit
 description: Generate or edit images with the local `imagegenkit` command (ImageGenKit). Use it whenever the user asks to create, generate, render, mock up or edit an image, or a task needs a raster image asset (photos, product shots, thumbnails, mockups, icons, illustrations, backgrounds, app/store assets, transparent PNGs, restyles, combining reference images).
 metadata:
   managed-by: ImageGenKit
-  version: 1.0.1
+  version: 1.0.2
 ---
 
 # Images with `imagegenkit`
@@ -32,6 +32,7 @@ Only if the user asks for a specific provider: `imagegenkit openai|grok|codex|xa
 - **Project assets:** write straight into the project's asset folder with a sensible name. Don't overwrite existing files unless asked. Existing outputs are never overwritten; imagegenkit adds `-2`, `-3` and so on.
 - **Prompts:** 2–5 sentences of plain prose covering subject, setting, style, composition and light. Put required text in quotes. For edits, say what must stay unchanged.
 - **Errors:** read the provider's message and adjust; don't retry blindly. A moderation block means stop and tell the user.
+- **Monthly limits:** the user can set a spend or image limit in ImageGenKit. If imagegenkit says a limit is reached, tell the user and don't work around it (no other providers, no raw API calls). `imagegenkit usage` shows this month's spend and limits.
 
 ## Output
 

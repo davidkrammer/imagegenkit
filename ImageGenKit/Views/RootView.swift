@@ -45,6 +45,13 @@ struct RootView: View {
         }
         .sheet(isPresented: $showGenerate) { GenerateView() }
         .background(GenerateDebugPresenter())
+        .background(OnboardingPresenter { destination in
+            switch destination {
+            case .generate: showGenerate = true
+            case .gallery: item = .gallery
+            case .settings: item = .settings
+            }
+        })
         .onAppear(perform: applyLaunchSection)
         .onChange(of: store.selectedID) { _, id in
             if id != nil { showInspector = true }

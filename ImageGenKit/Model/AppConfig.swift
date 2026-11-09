@@ -170,6 +170,12 @@ final class ConfigStore {
         save()
     }
 
+    /// Sets (or removes, with nil) a top-level key in config.json.
+    func setRaw(_ key: String, _ value: Any?) {
+        if let value { user[key] = value } else { user.removeValue(forKey: key) }
+        save()
+    }
+
     func binding(_ key: String) -> Binding<String> {
         Binding(get: { self.string(key) }, set: { self.set(key, $0) })
     }

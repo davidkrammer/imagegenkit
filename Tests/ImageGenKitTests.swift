@@ -127,3 +127,29 @@ struct ConfigTests {
         #expect(Installer.compare("2.0.1", "2.0.0") == 1)
     }
 }
+
+@MainActor
+struct LimitsTests {
+    @Test func limitsRoundTripAndLevels() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "igk-lim-\(UUID().uuidString)/config.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let c = ConfigStore(url: url)
+        #expect(!c.limits.isSet)
+        c.setLimits(UsageLimits(monthlyCost: 10, monthlyImages: nil, stopPaid: true))
+        let l = ConfigStore(url: url).limits
+        #expect(l.monthlyCost == 10 && l.monthlyImages == nil && l.stopPaid)
+
+        let parser = LogParser()
+        let now = Date()
+        let ts = now.formatted(.iso8601.year().month().day().dateSeparator(.dash).time(includingFractionalSeconds: false).timeSeparator(.colon)).prefix(19)
+        let line = #"{"ts": "\#(ts)", "provider": "xai", "type": "xai", "model": "m", "prompt": "p", "params": {}, "refs": [], "outputs": ["/a.png", "/b.png"], "usage": {"cost_usd": 8.5}, "cwd": "/tmp"}"#
+        let e = try #require(parser.parse(line: Substring(line), id: 0))
+        let u = MonthUsage(entries: [e], cost: c.cost, now: now)
+        #expect(u.images == 2 && abs(u.cost - 8.5) < 1e-9)
+        #expect(l.level(u) == .warning)
+        c.setLimits(UsageLimits(monthlyCost: 5, monthlyImages: 1, stopPaid: false))
+        #expect(ConfigStore(url: url).limits.level(u) == .reached)
+        c.setLimits(UsageLimits(monthlyCost: nil, monthlyImages: nil, stopPaid: true))
+        #expect(ConfigStore(url: url).user["limits"] == nil)
+    }
+}

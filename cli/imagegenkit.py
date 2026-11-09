@@ -32,7 +32,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 HOMEPAGE = "https://github.com/strics-at/imagegenkit"
 
 CONFIG_DIR = Path.home() / ".config" / "imagegenkit"
@@ -68,6 +68,14 @@ DEFAULTS = {
     },
     "providers": {},  # your own OpenAI-compatible endpoints: {"name": {"base_url": ..., "model": ...}}
     "provider_defaults": {},  # per provider: {"openai": {"quality": "medium", "resolution": "2K", "model": ...}}
+    "limits": {},  # {"monthly_cost": 20, "monthly_images": 500, "stop_paid": true}
+}
+
+# Price estimates in USD (same defaults as the app; config "prices" and the cached catalog override them).
+DEFAULT_PRICES = {
+    "openai": {"text_in": 5, "image_in": 8, "image_out": 30},
+    "xai": {"per_image": 0.02}, "gemini": {"per_image": 0.0336}, "openrouter": {"per_image": 0.009},
+    "recraft": {"per_image": 0.035}, "together": {"per_image": 0.0154}, "fal": {"per_image": 0.003},
 }
 
 BUILTIN_PROVIDERS = {
@@ -82,7 +90,7 @@ BUILTIN_PROVIDERS = {
 }
 CAN_TRANSPARENT = {"openai"}  # provider types that return real alpha
 SUBSCRIPTION_TYPES = {"grok-build", "codex-cli"}  # log in instead of an API key
-RESERVED = set(TASKS) | {"check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
+RESERVED = set(TASKS) | {"usage", "check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
                          "help", "log"}
 
 MIME_BY_EXT = {
@@ -571,6 +579,81 @@ def collect_images(resp, skip=()):
     return images
 
 
+# ---------- usage & limits ----------
+
+def prices_for(cfg, provider):
+    p = dict(DEFAULT_PRICES.get(provider, {}))
+    cache = CONFIG_DIR / "catalog.json"
+    try:
+        for entry in json.loads(cache.read_text()).get("providers", []):
+            if entry.get("id") == provider and entry.get("prices"):
+                p.update(entry["prices"])
+    except (OSError, ValueError):
+        pass
+    p.update((cfg.get("prices") or {}).get(provider) or {})
+    return p
+
+
+def estimate_cost(entry, cfg):
+    """Estimated USD of one logged run (0 for subscriptions). Mirrors ConfigStore.cost in the app."""
+    if entry.get("type") in SUBSCRIPTION_TYPES or entry.get("provider") == "grok":
+        return 0.0
+    u = entry.get("usage") or {}
+    if isinstance(u.get("cost_usd"), (int, float)):
+        return float(u["cost_usd"])
+    if isinstance(u.get("cost_in_usd_ticks"), (int, float)):
+        return u["cost_in_usd_ticks"] / 1e10
+    provider = entry.get("provider", "")
+    p = prices_for(cfg, provider)
+    if ("input_tokens" in u or "output_tokens" in u) and not p.get("image_out") and entry.get("type") == "openai":
+        p = prices_for(cfg, "openai")
+    if ("input_tokens" in u or "output_tokens" in u) and p.get("image_out"):
+        d = u.get("input_tokens_details") or {}
+        text = d.get("text_tokens") or 0
+        image = d.get("image_tokens") if d.get("image_tokens") is not None else (u.get("input_tokens", 0) - text)
+        return (text * p.get("text_in", 0) + image * p.get("image_in", 0) + u.get("output_tokens", 0) * p["image_out"]) / 1e6
+    if p.get("per_image"):
+        return p["per_image"] * len(entry.get("outputs") or [])
+    return 0.0
+
+
+def month_usage(cfg):
+    """This calendar month: (estimated spend, images, runs)."""
+    month = dt.datetime.now().strftime("%Y-%m")
+    cost = images = runs = 0
+    try:
+        with LOG_FILE.open() as f:
+            for line in f:
+                if f'"ts": "{month}' not in line:
+                    continue
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                cost += estimate_cost(e, cfg)
+                images += len(e.get("outputs") or [])
+                runs += 1
+    except OSError:
+        pass
+    return cost, images, runs
+
+
+def check_limits(cfg, spec):
+    """With 'stop_paid', refuse paid providers past the spend limit and everything past the image limit."""
+    lim = cfg.get("limits") or {}
+    if not lim.get("stop_paid"):
+        return
+    cost_limit, image_limit = lim.get("monthly_cost"), lim.get("monthly_images")
+    if not cost_limit and not image_limit:
+        return
+    cost, images, _ = month_usage(cfg)
+    if image_limit and images >= image_limit:
+        raise Unavailable(f"monthly image limit reached ({images} of {image_limit}). Change it in ImageGenKit › Settings › Limits")
+    if cost_limit and spec["type"] not in SUBSCRIPTION_TYPES and cost >= cost_limit:
+        raise Unavailable(f"monthly spend limit reached (${cost:.2f} of ${cost_limit:.2f}). Subscriptions still work; "
+                          "change it in ImageGenKit › Settings › Limits")
+
+
 # ---------- providers ----------
 
 def run_openai(a, cfg, spec, task):
@@ -969,6 +1052,8 @@ RUNNERS = {"openai": run_openai, "openai-compatible": run_openai, "xai": run_xai
 def run_provider(a, cfg):
     spec = all_providers(cfg)[a.cmd]
     try:
+        if not a.dry_run:
+            check_limits(cfg, spec)
         RUNNERS[spec["type"]](a, cfg, spec, None)
     except Unavailable as e:
         die(f"{spec['name']}: {e}")
@@ -1007,6 +1092,12 @@ def run_task(a, cfg):
             a.background = "transparent"
             if not a.format and not (a.out and Path(a.out).suffix):
                 a.format = "png"
+        try:
+            if not a.dry_run:
+                check_limits(cfg, spec)
+        except Unavailable as e:
+            skipped.append(f"{name}: {e}")
+            continue
         log(f"{task} -> {name}" + (f" (skipped {'; '.join(skipped)})" if skipped else ""))
         try:
             return RUNNERS[spec["type"]](a, cfg, spec, task)
@@ -1193,6 +1284,23 @@ def cmd_models(a, cfg):
         print(i)
 
 
+def cmd_usage(a, cfg):
+    cost, images, runs = month_usage(cfg)
+    lim = cfg.get("limits") or {}
+    out = {"month": dt.datetime.now().strftime("%Y-%m"), "cost": round(cost, 4), "images": images, "runs": runs,
+           "limits": lim}
+    if a.json:
+        print(json.dumps(out, indent=2))
+        return
+    print(f"{out['month']}: ${cost:.2f} estimated · {images} images · {runs} runs")
+    if lim.get("monthly_cost"):
+        print(f"spend limit  ${lim['monthly_cost']:.2f}  ({cost / lim['monthly_cost']:.0%} used)")
+    if lim.get("monthly_images"):
+        print(f"image limit  {lim['monthly_images']}  ({images / lim['monthly_images']:.0%} used)")
+    if lim and not lim.get("stop_paid"):
+        print("limits warn only (stop_paid is off)")
+
+
 def set_dotted(data, dotted, value):
     keys = dotted.split(".")
     node = data
@@ -1309,6 +1417,9 @@ def main():
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
     p.set_defaults(fn=cmd_config)
+    p = sub.add_parser("usage", help="this month's estimated spend, images and limits")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_usage)
     p = sub.add_parser("version", help="print the version")
     p.set_defaults(fn=lambda a, c: print(VERSION))
 

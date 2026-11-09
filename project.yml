@@ -22,6 +22,10 @@ targets:
     platform: macOS
     sources:
       - path: ImageGenKit
+        excludes: [AppIcon.icon]
+      - path: ImageGenKit/AppIcon.icon
+        type: file
+        buildPhase: resources
       - path: cli/imagegenkit.py
         buildPhase: resources
       - path: skill/SKILL.md

@@ -1,16 +1,16 @@
 {
   "fill": {
     "linear-gradient": [
-      "display-p3:0.40000,0.42000,0.98000,1.00000",
-      "display-p3:0.62000,0.30000,0.93000,1.00000"
+      "display-p3:0.20000,0.20000,0.21000,1.00000",
+      "display-p3:0.02000,0.02000,0.02000,1.00000"
     ],
     "orientation": {
       "start": {
-        "x": 0.15,
+        "x": 0.5,
         "y": 0.0
       },
       "stop": {
-        "x": 0.85,
+        "x": 0.5,
         "y": 1.0
       }
     }
@@ -20,42 +20,43 @@
       "layers": [
         {
           "glass": true,
-          "image-name": "sparkle.svg",
-          "name": "sparkle"
+          "image-name": "spark.svg",
+          "name": "spark"
+        },
+        {
+          "glass": true,
+          "image-name": "spark-small.svg",
+          "name": "spark-small",
+          "opacity": 0.9
         }
       ],
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.45
+        "opacity": 0.5
       },
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.25
+        "value": 0.15
       }
     },
     {
       "layers": [
         {
           "glass": true,
-          "image-name": "frame.svg",
-          "name": "frame"
-        },
-        {
-          "glass": true,
-          "image-name": "hills.svg",
-          "name": "hills",
-          "opacity": 0.92
+          "image-name": "viewfinder.svg",
+          "name": "viewfinder",
+          "opacity": 0.88
         }
       ],
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.35
+        "opacity": 0.3
       },
       "specular": true,
       "translucency": {
         "enabled": true,
-        "value": 0.35
+        "value": 0.4
       }
     }
   ],

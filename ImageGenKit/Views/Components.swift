@@ -14,7 +14,7 @@ enum Theme {
             let dark = d.string(forKey: "accentDarkHex").flatMap { UInt32($0, radix: 16) } ?? hex
             return Color(light: hex, dark: dark)
         }
-        return Color(light: 0x5B5BD6, dark: 0x7C7CF0)
+        return Color(light: 0x1C1C1E, dark: 0xF2F2F7)  // graphite: black in light mode, white in dark mode
     }()
 
     /// One button shape for the whole app. `-buttonShape capsule|rounded|square` previews others.

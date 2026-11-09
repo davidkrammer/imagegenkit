@@ -175,3 +175,42 @@ struct ModelDefaultTests {
         #expect(ConfigStore(url: url).providerDefault("openai", "model") == "gpt-image-2.6-flare")
     }
 }
+
+struct ShellTests {
+    /// A child that writes more than a pipe buffer to stderr used to deadlock the read of stdout.
+    @Test(.timeLimit(.minutes(1))) func readsLargeStderrWithoutDeadlock() async {
+        let r = await Shell.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "head -c 300000 /dev/zero | tr '\\0' x >&2; echo done"])
+        #expect(r.status == 0)
+        #expect(r.stdout == "done\n")
+        #expect(r.stderr.count == 300_000)
+    }
+
+    /// Writing stdin to a child that already exited used to kill the app with SIGPIPE.
+    @Test func stdinToExitedChildDoesNotCrash() async {
+        let big = String(repeating: "x", count: 200_000)
+        let r = await Shell.run(URL(fileURLWithPath: "/usr/bin/true"), [], stdin: big)
+        #expect(r.status == 0)
+    }
+
+    @Test func passesStdin() async {
+        let r = await Shell.run(URL(fileURLWithPath: "/bin/cat"), [], stdin: "hello")
+        #expect(r.stdout == "hello")
+    }
+}
+
+struct KeychainTests {
+    @Test func quotesValuesForSecurityTokenizer() {
+        let cmd = Keychain.addCommand(key: "k1", service: "imagegenkit-x", label: #"My "Best" a\b"#)
+        #expect(cmd.contains(#"-l "ImageGenKit My \"Best\" a\\b API key""#))
+        #expect(cmd.hasSuffix(" -w \"k1\"\n"))
+    }
+
+    /// Round trip with a throwaway item: a provider name with quotes used to make `security` reject the command.
+    @Test func savesWithQuotedLabel() async {
+        let service = "zz-qa-test"
+        #expect(await Keychain.save("dummy-not-a-key", service: service, label: #"Quote "Test" \ API"#))
+        #expect(await Keychain.exists(service))
+        await Keychain.delete(service)
+        #expect(!(await Keychain.exists(service)))
+    }
+}

@@ -16,9 +16,19 @@ nonisolated enum Keychain {
     static func save(_ key: String, service: String, label: String) async -> Bool {
         let clean = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean.range(of: #"[\s"\\]"#, options: .regularExpression) == nil else { return false }
-        let cmd = "add-generic-password -U -a \"\(NSUserName())\" -s \"\(service)\" -l \"ImageGenKit \(label) API key\" -w \"\(clean)\"\n"
+        let cmd = addCommand(key: clean, service: service, label: label)
         let r = await Shell.run(URL(fileURLWithPath: "/usr/bin/security"), ["-i"], stdin: cmd)  // stdin keeps the key out of argv
         return r.status == 0
+    }
+
+    /// The `security -i` line that saves a key. Values are quoted for security's tokenizer, so a provider
+    /// name with a quote or backslash (`My "Best" API`) doesn't break the command.
+    static func addCommand(key: String, service: String, label: String) -> String {
+        func q(_ s: String) -> String {
+            let flat = s.replacingOccurrences(of: #"[\r\n]+"#, with: " ", options: .regularExpression)
+            return "\"" + flat.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        }
+        return "add-generic-password -U -a \(q(NSUserName())) -s \(q(service)) -l \(q("ImageGenKit \(label) API key")) -w \(q(key))\n"
     }
 
     static func delete(_ service: String) async {

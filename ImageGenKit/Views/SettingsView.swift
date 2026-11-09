@@ -1,13 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Settings: one scrolling page with Providers, Use for, Images, Prices, Agents and About.
+/// Settings: one scrolling page with Providers, Use for, Images, Limits, Agents, General and About.
 struct SettingsView: View {
     @Environment(ConfigStore.self) private var config
     @Environment(ProviderStatus.self) private var status
     @Environment(Installer.self) private var installer
     @Environment(Updater.self) private var updater
     @State private var sheet: AddProviderRoute?
+    /// Set by other screens (e.g. Overview's "Change Limit") to scroll to a section once.
+    @AppStorage("settingsScrollTo") private var pendingScroll = ""
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -16,8 +18,10 @@ struct SettingsView: View {
                 SettingsProvidersSection(sheet: $sheet).settingsEnter(0)
                 SettingsTasksSection().settingsEnter(1)
                 SettingsImagesSection().id("images").settingsEnter(2)
-                SettingsAgentsSection().settingsEnter(3)
-                SettingsAboutSection().settingsEnter(4)
+                SettingsLimitsSection().id("limits").settingsEnter(3)
+                SettingsAgentsSection().settingsEnter(4)
+                SettingsGeneralSection().id("general").settingsEnter(5)
+                SettingsAboutSection().settingsEnter(6)
                 Color.clear.frame(height: 1).id("end")
             }
             .padding(.horizontal, 24)
@@ -25,6 +29,13 @@ struct SettingsView: View {
             .padding(.bottom, 32)
             .frame(maxWidth: 700)
             .frame(maxWidth: .infinity)
+        }
+        .task {
+            guard !pendingScroll.isEmpty else { return }
+            let target = pendingScroll
+            pendingScroll = ""
+            try? await Task.sleep(for: .milliseconds(150))
+            withAnimation(.smooth(duration: 0.4)) { proxy.scrollTo(target, anchor: .top) }
         }
         #if DEBUG
         .onAppear {

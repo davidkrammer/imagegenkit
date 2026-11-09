@@ -104,7 +104,8 @@ nonisolated enum ProjectNamer {
     /// Recognised project locations, or nil.
     static func named(_ path: String) -> String? {
         if let brand = component(after: "/com~apple~CloudDocs/Videos/", in: path) { return "Videos · \(brand)" }
-        for root in ["/App Projects/", "/Web Projects/", "/Random Projects/"] {
+        for root in ["/App Projects/", "/Web Projects/", "/Random Projects/", "/Projects/", "/Developer/", "/Code/",
+                     "/GitHub/", "/src/", "/repos/"] {
             if let name = component(after: root, in: path) { return name }
         }
         // Claude Code scratchpads: /private/tmp/claude-<uid>/-Users-<me>-Random-Projects-Video-Ideas/<session>/scratchpad
@@ -112,7 +113,8 @@ nonisolated enum ProjectNamer {
            let encoded = path[r.upperBound...].split(separator: "/").first.map(String.init) {
             let home = NSHomeDirectory().replacingOccurrences(of: "/", with: "-") + "-"
             let s = encoded.hasPrefix(home) ? String(encoded.dropFirst(home.count)) : encoded
-            for root in ["App-Projects-", "Web-Projects-", "Random-Projects-"] where s.hasPrefix(root) {
+            for root in ["App-Projects-", "Web-Projects-", "Random-Projects-", "Projects-", "Developer-", "Code-",
+                         "GitHub-", "src-", "repos-"] where s.hasPrefix(root) {
                 return String(s.dropFirst(root.count)).replacingOccurrences(of: "-", with: " ")
             }
             if s.hasPrefix("-t3-scratch") { return "T3 scratch" }

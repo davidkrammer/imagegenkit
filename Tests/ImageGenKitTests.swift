@@ -45,7 +45,7 @@ struct ParserTests {
 
     @Test func namesProjectsFromScratchpads() {
         let encodedHome = NSHomeDirectory().replacingOccurrences(of: "/", with: "-")
-        let scratch = "/private/tmp/claude-501/\(encodedHome)-Random-Projects-Video-Ideas/c8ced2ad/scratchpad/xtool-nov"
+        let scratch = "/private/tmp/claude-501/\(encodedHome)-Projects-Video-Ideas/c8ced2ad/scratchpad/assets"
         #expect(ProjectNamer.name(cwd: scratch, outputs: ["\(scratch)/a.png"]) == "Video Ideas")
         #expect(ProjectNamer.name(cwd: "/private/tmp/michiller-work3", outputs: ["a.png"]) == "tmp · michiller-work3")
     }

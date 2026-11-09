@@ -14,3 +14,5 @@ result*.json
 xcuserdata/
 .build/
 .shots/
+__pycache__/
+*.pyc

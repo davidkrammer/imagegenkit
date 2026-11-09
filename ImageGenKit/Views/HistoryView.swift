@@ -37,10 +37,10 @@ struct HistoryView: View {
             TableColumn("Provider", value: \.provider) { row in
                 HStack(spacing: 7) {
                     Circle().fill(ProviderStyle.color(row.entry.provider)).frame(width: 8, height: 8)
-                    Text(row.provider)
+                    Text(row.provider).lineLimit(1)
                 }
             }
-            .width(min: 70, ideal: 85)
+            .width(min: 80, ideal: 110)
             TableColumn("Type") { (row: HistoryRow) in
                 Pill(text: row.entry.kindLabel)
             }

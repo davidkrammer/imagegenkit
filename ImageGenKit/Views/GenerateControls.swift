@@ -28,7 +28,7 @@ struct GenerateProviderChip: View {
             Label {
                 Text(provider.label)
             } icon: {
-                Circle().fill(selected ? Color.white : provider.color).frame(width: 8, height: 8)
+                Circle().fill(selected ? Theme.onAccent : provider.color).frame(width: 8, height: 8)
             }
         }
         if selected {

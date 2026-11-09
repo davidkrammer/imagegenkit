@@ -16,6 +16,8 @@ enum Theme {
         }
         return Color(light: 0x1C1C1E, dark: 0xF2F2F7)  // graphite: black in light mode, white in dark mode
     }()
+    /// Text and symbols on an accent fill (white on black, black on white).
+    static let onAccent = Color(light: 0xFFFFFF, dark: 0x1C1C1E)
 
     /// Switches: a near-white tint turns lavender in dark mode (macOS boosts it against the white knob), so a neutral gray.
     static let switchTint = Color(light: 0x1C1C1E, dark: 0x8C8C8C)
@@ -160,7 +162,7 @@ struct ImageMenu: View {
             Divider()
         }
         Button("Copy Prompt") { Actions.copy(entry.prompt) }
-        Button("Copy imagegen Command") { Actions.copy(entry.rerunCommand) }
+        Button("Copy Command") { Actions.copy(entry.rerunCommand) }
         if index < entry.outputs.count {
             Button("Copy File Path") { Actions.copy(entry.outputs[index]) }
         }

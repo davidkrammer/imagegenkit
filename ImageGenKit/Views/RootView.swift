@@ -183,9 +183,8 @@ private struct SidebarColumn: View {
 
     /// Nil until the first status check has finished.
     private var readyCount: Int? {
-        let states = config.providers.map { status.state($0.id) }
-        guard states.contains(where: { $0 != .unknown }) else { return nil }
-        return states.filter(\.isReady).count
+        guard config.providers.contains(where: { status.state($0.id) != .unknown }) else { return nil }
+        return config.enabled(ready: { status.state($0).isReady }).filter { status.state($0.id).isReady }.count
     }
 }
 

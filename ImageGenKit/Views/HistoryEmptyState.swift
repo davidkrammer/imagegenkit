@@ -109,7 +109,7 @@ private struct HistoryEmptyArt: View {
             }
             Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.onAccent)
                 .frame(width: 36, height: 36)
                 .background(Theme.accent.gradient, in: Circle())
                 .overlay(Circle().strokeBorder(Theme.card, lineWidth: 3))

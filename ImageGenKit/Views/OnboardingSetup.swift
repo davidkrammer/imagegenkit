@@ -212,7 +212,7 @@ private struct OnboardingScanArt: View {
                     if scanning {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.onAccent)
                             .frame(width: 28, height: 28)
                             .background(Theme.accent, in: Circle())
                             .offset(x: 8, y: 8)
@@ -291,7 +291,7 @@ struct OnboardingAgentsStep: View {
                         } else {
                             Button { setUpEverything() } label: {
                                 HStack(spacing: 6) {
-                                    if running { ProgressView().controlSize(.small).tint(.white) }
+                                    if running { ProgressView().controlSize(.small) }
                                     Text(running ? "Setting up…" : "Set up everything")
                                 }
                             }
@@ -391,7 +391,7 @@ struct OnboardingAgentsStep: View {
 private struct OnboardingTerminalArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var start = Date()
-    private let command = "imagegenkit draft \"a cute robot sticker\""
+    private let command = "imagegenkit draft \"robot sticker\""
 
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { context in

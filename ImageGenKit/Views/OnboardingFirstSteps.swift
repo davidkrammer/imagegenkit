@@ -17,7 +17,7 @@ struct OnboardingFirstSteps: View {
         ScrollView {
             VStack(spacing: 22) {
                 VStack(spacing: 14) {
-                    AppIconView(size: 72)
+                    IconBadge(symbol: "sparkles", size: 60)
                     Text("Let's make your first image")
                         .font(.system(size: 22, weight: .semibold))
                 }

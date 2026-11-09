@@ -39,8 +39,7 @@ struct GenerateHeader<Lead: View, Accessory: View>: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            AppIconView(size: 46)
-                .shadow(color: Theme.accent.opacity(0.25), radius: 8, y: 4)
+            IconBadge(symbol: "sparkles", size: 46)
                 .generatePop()
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 10) {

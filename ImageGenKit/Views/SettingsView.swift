@@ -333,8 +333,7 @@ struct SettingsAboutSection: View {
         VStack(spacing: 0) {
             ZStack {
                 SettingsArtBackground(radius: 260)
-                AppIconView(size: 72)
-                    .shadow(color: Theme.accent.opacity(0.25), radius: 16, y: 8)
+                AppGlyph(size: 64)
                     .settingsFloat(3, duration: 3.2)
             }
             .frame(height: 132)

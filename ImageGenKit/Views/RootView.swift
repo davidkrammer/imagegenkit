@@ -151,6 +151,8 @@ private struct SidebarColumn: View {
                 }
             }
             .listStyle(.sidebar)
+            // Graphite accent is near-white in dark mode; keep the selection readable there.
+            .tint(Color(light: 0x1C1C1E, dark: 0x5A5A5F))
             .scrollContentBackground(.hidden)
             .scrollDisabled(true)
             .frame(height: CGFloat(SidebarItem.allCases.count) * 34 + 12)
@@ -186,11 +188,9 @@ private struct SidebarColumn: View {
 
 private struct SidebarIdentity: View {
     var body: some View {
-        HStack(spacing: 9) {
-            AppIconView(size: 30)
-            Text("ImageGenKit")
-                .font(.system(size: 14, weight: .semibold))
-        }
+        Text("ImageGenKit")
+            .font(.system(size: 15, weight: .semibold))
+            .padding(.leading, 4)
     }
 }
 

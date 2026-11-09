@@ -38,7 +38,8 @@ struct MonthUsage {
             let date = cal.date(byAdding: .day, value: d, to: weekStart) ?? weekStart
             days[date] = Day(date: date)
         }
-        for e in entries {
+        let earliest = min(weekStart, start)
+        for e in entries where e.date >= earliest {  // the menu bar label redraws this on every log change
             let c = cost(e)
             if e.date >= weekStart {
                 let day = cal.startOfDay(for: e.date)
@@ -58,7 +59,7 @@ struct MonthUsage {
         }
         providers = byProvider.values.sorted { ($0.images, $0.cost) > ($1.images, $1.cost) }
         last7 = days.values.sorted { $0.date < $1.date }
-        recent = Array(entries.reversed().filter { !$0.outputs.isEmpty }.prefix(6))
+        recent = Array(entries.reversed().lazy.filter { !$0.outputs.isEmpty }.prefix(6))
     }
 }
 

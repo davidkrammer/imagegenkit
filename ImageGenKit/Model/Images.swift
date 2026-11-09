@@ -6,7 +6,8 @@ import UniformTypeIdentifiers
 nonisolated enum Paths {
     static let home = URL(fileURLWithPath: NSHomeDirectory())
     /// `-configDir <path>` points the app at another folder (demo data for screenshots).
-    static let config: URL = UserDefaults.standard.string(forKey: "configDir").map { URL(fileURLWithPath: $0) }
+    static let config: URL = UserDefaults.standard.string(forKey: "configDir")
+        .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
         ?? home.appending(path: ".config/imagegenkit")
     static let legacyConfig = home.appending(path: ".config/imagegen")
     static let log = config.appending(path: "log.jsonl")
@@ -204,26 +205,45 @@ nonisolated enum Shell {
         return "\(h)/.local/bin:\(h)/.grok/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     }()
 
+    /// Writing to a pipe whose reader is gone (the child already exited) raises SIGPIPE, which kills the app.
+    /// Ignored once, so the write fails with EPIPE instead.
+    private static let ignoreSIGPIPE: Void = { signal(SIGPIPE, SIG_IGN) }()
+
+    private final class Box: @unchecked Sendable { var data = Data() }
+
     static func run(_ executable: URL, _ arguments: [String], stdin: String? = nil) async -> Result {
-        await Task.detached(priority: .userInitiated) { () -> Result in
-            let p = Process()
-            p.executableURL = executable
-            p.arguments = arguments
-            var env = ProcessInfo.processInfo.environment
-            env["PATH"] = path
-            p.environment = env
-            let out = Pipe(), err = Pipe(), input = Pipe()
-            p.standardOutput = out
-            p.standardError = err
-            p.standardInput = input
-            do { try p.run() } catch { return Result(status: -1, stdout: "", stderr: error.localizedDescription) }
-            if let stdin { input.fileHandleForWriting.write(Data(stdin.utf8)) }
-            try? input.fileHandleForWriting.close()
-            let o = out.fileHandleForReading.readDataToEndOfFile()
-            let e = err.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            return Result(status: p.terminationStatus, stdout: String(decoding: o, as: UTF8.self),
-                          stderr: String(decoding: e, as: UTF8.self))
-        }.value
+        await Task.detached(priority: .userInitiated) { runBlocking(executable, arguments, stdin: stdin) }.value
+    }
+
+    /// Blocks the calling thread until the command exits.
+    private static func runBlocking(_ executable: URL, _ arguments: [String], stdin: String?) -> Result {
+        _ = ignoreSIGPIPE
+        let p = Process()
+        p.executableURL = executable
+        p.arguments = arguments
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = path
+        p.environment = env
+        let out = Pipe(), err = Pipe(), input = Pipe()
+        p.standardOutput = out
+        p.standardError = err
+        p.standardInput = input
+        do { try p.run() } catch { return Result(status: -1, stdout: "", stderr: error.localizedDescription) }
+        // stdin is written and stderr read on their own threads: a child that fills the stderr pipe
+        // (64 KB) while we wait on stdout, or that reads stdin only after writing output, would deadlock.
+        let group = DispatchGroup(), errBox = Box()
+        let writer = input.fileHandleForWriting, errReader = err.fileHandleForReading
+        DispatchQueue.global(qos: .userInitiated).async(group: group) {
+            if let stdin { try? writer.write(contentsOf: Data(stdin.utf8)) }  // throwing API: EPIPE is an error, not an exception
+            try? writer.close()
+        }
+        DispatchQueue.global(qos: .userInitiated).async(group: group) {
+            errBox.data = errReader.readDataToEndOfFile()
+        }
+        let o = out.fileHandleForReading.readDataToEndOfFile()
+        group.wait()
+        p.waitUntilExit()
+        return Result(status: p.terminationStatus, stdout: String(decoding: o, as: UTF8.self),
+                      stderr: String(decoding: errBox.data, as: UTF8.self))
     }
 }

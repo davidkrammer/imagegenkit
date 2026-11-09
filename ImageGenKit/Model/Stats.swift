@@ -59,8 +59,20 @@ struct Stats {
         var projectMap: [String: Group] = [:]
         var monthMap: [Date: Month] = [:]
         var seconds: [Double] = []
+        // Calendar lookups dominate a redraw with a 10k-run log, so they're cached per local day.
+        // `ts` starts with the local date the date was parsed from (unparseable ones aren't cached).
+        var dayStarts: [Substring: (bucket: Date, month: Date)] = [:]
+        func starts(_ e: LogEntry) -> (bucket: Date, month: Date) {
+            let key = e.ts.prefix(10)
+            if e.date != .distantPast, let hit = dayStarts[key] { return hit }
+            let value = (cal.dateInterval(of: unit, for: e.date)?.start ?? e.date,
+                         cal.dateInterval(of: .month, for: e.date)?.start ?? e.date)
+            if e.date != .distantPast { dayStarts[key] = value }
+            return value
+        }
 
         for e in entries {
+            let (start, monthStart) = starts(e)
             let c = cost(e)
             let value = c ?? 0
             runs += 1
@@ -69,7 +81,6 @@ struct Stats {
             if c != nil { paidImages += e.imageCount }
             if let s = e.seconds { seconds.append(s) }
 
-            let start = cal.dateInterval(of: unit, for: e.date)?.start ?? e.date
             var b = bucketMap[start, default: [:]][e.provider] ?? Bucket(start: start, provider: e.provider)
             b.runs += 1
             b.images += e.imageCount
@@ -89,7 +100,6 @@ struct Stats {
             g.cost += value
             projectMap[e.project] = g
 
-            let monthStart = cal.dateInterval(of: .month, for: e.date)?.start ?? e.date
             var m = monthMap[monthStart] ?? Month(start: monthStart)
             m.runs += 1
             m.images += e.imageCount

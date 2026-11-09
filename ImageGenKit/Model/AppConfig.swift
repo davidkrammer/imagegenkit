@@ -98,6 +98,8 @@ final class ConfigStore {
     private(set) var user: [String: Any] = [:]
     @ObservationIgnored private let url: URL
     @ObservationIgnored private var lastModified: Date?
+    /// config.json exists but couldn't be parsed; it's backed up before the first save.
+    @ObservationIgnored private var unreadable = false
     /// Default prices from the provider catalog (set by the app at launch).
     var catalogPrices: [String: [String: Double]] = [:]
     /// From the catalog (refreshed from GitHub): default models per provider and prices per model.
@@ -140,11 +142,14 @@ final class ConfigStore {
         let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
         guard modified != lastModified || modified == nil else { return }
         lastModified = modified
-        if let data = try? Data(contentsOf: url),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        let data = try? Data(contentsOf: url)
+        if let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             user = obj
+            unreadable = false
         } else {
             user = [:]
+            // A file that exists but isn't a JSON object (hand-edited with a typo): keep it until a change is saved.
+            unreadable = !(data?.isEmpty ?? true)
         }
         ProviderStyle.customLabels = Dictionary(uniqueKeysWithValues: customProviders.map { ($0.id, $0.label) })
         ProviderStyle.customOrder = customProviders.map(\.id)
@@ -171,6 +176,13 @@ final class ConfigStore {
     private func save() {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if unreadable {
+                // Don't silently replace a config that couldn't be read: keep a copy next to it first.
+                let stamp = Int(Date().timeIntervalSince1970)
+                try FileManager.default.copyItem(at: url, to: url.deletingLastPathComponent()
+                    .appending(path: "config.unreadable-\(stamp).json"))
+                unreadable = false
+            }
             let data = try JSONSerialization.data(withJSONObject: user, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try (data + Data("\n".utf8)).write(to: url, options: .atomic)
             lastModified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date

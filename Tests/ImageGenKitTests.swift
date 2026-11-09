@@ -121,6 +121,36 @@ struct ConfigTests {
         #expect(ConfigStore(url: url).provider("together") == nil)
     }
 
+    @Test func keepsUnknownKeys() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "igk-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appending(path: "config.json")
+        try Data(#"{"auto_update": false, "future": {"x": [1, 2]}, "tasks": {"draft": {"provider": "grok", "extra": "y"}}}"#.utf8).write(to: url)
+        ConfigStore(url: url).setTask(.final, "provider", "xai")
+        let obj = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(obj["auto_update"] as? Bool == false)
+        #expect((obj["future"] as? [String: Any])?["x"] as? [Int] == [1, 2])
+        #expect(((obj["tasks"] as? [String: Any])?["draft"] as? [String: Any])?["extra"] as? String == "y")
+    }
+
+    /// A hand-edited config.json with a typo used to be replaced by the app's next save without a trace.
+    @Test func backsUpUnreadableConfigBeforeSaving() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "igk-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appending(path: "config.json")
+        let broken = #"{"order": ["grok"] "my_notes": "keep me"}"#  // missing comma
+        try Data(broken.utf8).write(to: url)
+        let c = ConfigStore(url: url)
+        #expect(c.user.isEmpty)
+        c.setTask(.draft, "provider", "openai")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix("config.unreadable-") }
+        let backup = try #require(backups.count == 1 ? backups.first : nil)
+        #expect(try String(contentsOf: dir.appending(path: backup), encoding: .utf8) == broken)
+        #expect(ConfigStore(url: url).taskValue(.draft, "provider") == "openai")
+    }
+
     @Test func versionCompare() {
         #expect(Installer.compare("1.0.0", "1.0") == 0)
         #expect(Installer.compare("1.2", "1.10") == -1)
@@ -173,5 +203,63 @@ struct ModelDefaultTests {
         #expect(c.user["provider_defaults"] == nil)
         c.setProviderDefault("openai", "model", "gpt-image-2.6-flare")
         #expect(ConfigStore(url: url).providerDefault("openai", "model") == "gpt-image-2.6-flare")
+    }
+}
+
+struct ShellTests {
+    /// A child that writes more than a pipe buffer to stderr used to deadlock the read of stdout.
+    @Test(.timeLimit(.minutes(1))) func readsLargeStderrWithoutDeadlock() async {
+        let r = await Shell.run(URL(fileURLWithPath: "/bin/sh"), ["-c", "head -c 300000 /dev/zero | tr '\\0' x >&2; echo done"])
+        #expect(r.status == 0)
+        #expect(r.stdout == "done\n")
+        #expect(r.stderr.count == 300_000)
+    }
+
+    /// Writing stdin to a child that already exited used to kill the app with SIGPIPE.
+    @Test func stdinToExitedChildDoesNotCrash() async {
+        let big = String(repeating: "x", count: 200_000)
+        let r = await Shell.run(URL(fileURLWithPath: "/usr/bin/true"), [], stdin: big)
+        #expect(r.status == 0)
+    }
+
+    @Test func passesStdin() async {
+        let r = await Shell.run(URL(fileURLWithPath: "/bin/cat"), [], stdin: "hello")
+        #expect(r.stdout == "hello")
+    }
+}
+
+struct KeychainTests {
+    @Test func quotesValuesForSecurityTokenizer() {
+        let cmd = Keychain.addCommand(key: "k1", service: "imagegenkit-x", label: #"My "Best" a\b"#)
+        #expect(cmd.contains(#"-l "ImageGenKit My \"Best\" a\\b API key""#))
+        #expect(cmd.hasSuffix(" -w \"k1\"\n"))
+    }
+
+    /// Round trip with a throwaway item: a provider name with quotes used to make `security` reject the command.
+    @Test func savesWithQuotedLabel() async {
+        let service = "zz-qa-test"
+        #expect(await Keychain.save("dummy-not-a-key", service: service, label: #"Quote "Test" \ API"#))
+        #expect(await Keychain.exists(service))
+        await Keychain.delete(service)
+        #expect(!(await Keychain.exists(service)))
+    }
+}
+
+@MainActor
+struct StatsTests {
+    @Test func bucketsByLocalDayAndMonth() throws {
+        let parser = LogParser()
+        let lines = ["2026-10-31T23:59:00", "2026-11-01T00:01:00", "2026-11-01T12:00:00", "2026-11-03T08:00:00"].enumerated().map { i, ts in
+            #"{"ts": "\#(ts)", "provider": "xai", "model": "m", "outputs": ["/a/\#(i).png"], "cwd": "/a"}"#
+        }
+        let entries = try lines.enumerated().map { try #require(parser.parse(line: Substring($1), id: $0)) }
+        let stats = Stats(entries: entries, rangeStart: nil, cost: { _ in 0.02 })
+        #expect(stats.months.map(\.images) == [3, 1])  // newest first: November, October
+        let cal = Calendar.current
+        #expect(stats.months.first?.start == cal.date(from: DateComponents(year: 2026, month: 11, day: 1)))
+        #expect(stats.buckets.map(\.images) == [1, 2, 1])
+        #expect(stats.buckets.map(\.start) == [(2026, 10, 31), (2026, 11, 1), (2026, 11, 3)].map {
+            cal.date(from: DateComponents(year: $0.0, month: $0.1, day: $0.2))!
+        })
     }
 }

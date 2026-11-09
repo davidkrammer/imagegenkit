@@ -42,6 +42,10 @@
 |---|---|
 | ![Settings](docs/screenshots/settings.jpg) | ![Key guide](docs/screenshots/setup.jpg) |
 
+| Menu bar | Monthly limits |
+|---|---|
+| ![Menu bar](docs/screenshots/menubar.jpg) | ![Monthly limits](docs/screenshots/limits.jpg) |
+
 ## Install
 
 ### Download

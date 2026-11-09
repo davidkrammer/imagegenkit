@@ -9,7 +9,7 @@ struct SettingsGeneralSection: View {
     var body: some View {
         SettingsSection(title: "General", icon: "gearshape", lead: "How the app runs.") {
             SettingsRow(icon: "menubar.rectangle", title: "Show in menu bar") {
-                Toggle("Show in menu bar", isOn: $showMenuBar).labelsHidden().toggleStyle(.switch)
+                Toggle("Show in menu bar", isOn: $showMenuBar).labelsHidden().toggleStyle(.switch).tint(Theme.switchTint)
             }
             SettingsDivider(inset: 58)
             SettingsRow(icon: "power", title: "Open at login", detail: loginDetail, detailColor: .orange) {
@@ -18,7 +18,7 @@ struct SettingsGeneralSection: View {
                         Button("Allow…") { SMAppService.openSystemSettingsLoginItems() }
                             .buttonStyle(.link)
                     }
-                    Toggle("Open at login", isOn: loginBinding).labelsHidden().toggleStyle(.switch)
+                    Toggle("Open at login", isOn: loginBinding).labelsHidden().toggleStyle(.switch).tint(Theme.switchTint)
                 }
             }
         }

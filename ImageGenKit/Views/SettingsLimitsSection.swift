@@ -79,7 +79,7 @@ struct SettingsLimitsSection: View {
                         SettingsLimitsField(prefix: "$", value: costBinding(limits), format: .number.precision(.fractionLength(0...2)))
                             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
                     }
-                    Toggle("Monthly spend", isOn: costToggle(limits)).labelsHidden().toggleStyle(.switch)
+                    Toggle("Monthly spend", isOn: costToggle(limits)).labelsHidden().toggleStyle(.switch).tint(Theme.switchTint)
                 }
             }
             SettingsDivider(inset: 58)
@@ -89,7 +89,7 @@ struct SettingsLimitsSection: View {
                         SettingsLimitsField(prefix: nil, value: imagesBinding(limits), format: .number.precision(.fractionLength(0)))
                             .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
                     }
-                    Toggle("Monthly images", isOn: imagesToggle(limits)).labelsHidden().toggleStyle(.switch)
+                    Toggle("Monthly images", isOn: imagesToggle(limits)).labelsHidden().toggleStyle(.switch).tint(Theme.switchTint)
                 }
             }
             SettingsDivider(inset: 58)

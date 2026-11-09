@@ -17,6 +17,9 @@ enum Theme {
         return Color(light: 0x1C1C1E, dark: 0xF2F2F7)  // graphite: black in light mode, white in dark mode
     }()
 
+    /// Switches: a near-white tint turns lavender in dark mode (macOS boosts it against the white knob), so a neutral gray.
+    static let switchTint = Color(light: 0x1C1C1E, dark: 0x8C8C8C)
+
     /// One button shape for the whole app. `-buttonShape capsule|rounded|square` previews others.
     static let buttonShape: ButtonBorderShape = {
         switch UserDefaults.standard.string(forKey: "buttonShape") {

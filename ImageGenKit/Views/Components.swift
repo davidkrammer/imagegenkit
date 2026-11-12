@@ -8,6 +8,8 @@ enum Theme {
     static let card = Color(light: 0xFFFFFF, dark: 0x262629)
     static let well = Color(light: 0xF0F0F3, dark: 0x303034)
     /// Brand accent. `-accentHex RRGGBB` / `-accentDarkHex RRGGBB` override it (design previews).
+    /// The AccentColor asset (sidebar and table selection, focus rings) is mid-gray in dark mode instead:
+    /// macOS draws white text on the selection, and `.tint` doesn't reach it.
     static let accent: Color = {
         let d = UserDefaults.standard
         if let hex = d.string(forKey: "accentHex").flatMap({ UInt32($0, radix: 16) }) {

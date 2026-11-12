@@ -154,8 +154,6 @@ private struct SidebarColumn: View {
                 }
             }
             .listStyle(.sidebar)
-            // Graphite accent is near-white in dark mode; keep the selection readable there.
-            .tint(Color(light: 0x1C1C1E, dark: 0x5A5A5F))
             .scrollContentBackground(.hidden)
             .scrollDisabled(true)
             .frame(height: CGFloat(SidebarItem.allCases.count) * 34 + 12)

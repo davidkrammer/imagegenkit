@@ -213,16 +213,54 @@ public sealed partial class OverviewPage : Page, IRefreshable
         return Ui.Card(body);
     }
 
+    /// No images yet: three numbered first steps (they tick off as they're done) and the tour.
     UIElement EmptyState()
     {
-        var button = Ui.LabelButton("", "Generate an image", (_, _) => App.Window?.OpenGenerate(), accent: true);
-        button.HorizontalAlignment = HorizontalAlignment.Center;
-        var col = Ui.Column(10,
-            Ui.Text("No images yet", 22, bold: true),
-            Ui.Muted("Connect a provider in Settings, or make your first image now.", 14),
-            button);
-        foreach (var c in col.Children.OfType<TextBlock>()) c.HorizontalAlignment = HorizontalAlignment.Center;
-        col.Padding = new Thickness(40);
-        return new Border { Style = Ui.GetStyle("HeroStyle"), Child = col, Margin = new Thickness(0, 40, 0, 0) };
+        var s = Store.Shared;
+        var ready = s.Providers.Where(p => p.Ready && s.Enabled.Contains(p.Name)).Select(p => p.Label).ToList();
+        var steps = Ui.Column(14,
+            FirstStep(1, "Connect a provider",
+                ready.Count > 0 ? $"Ready: {string.Join(", ", ready)}." : "Grok or ChatGPT, an API key, or a free model on this PC.",
+                ready.Count > 0, "Settings", () => App.Window?.Navigate("settings", "providers")),
+            FirstStep(2, "Make your first image", "Describe it, pick a provider, generate. It lands in your Gallery.",
+                false, "Generate", () => App.Window?.OpenGenerate(), accent: ready.Count > 0),
+            FirstStep(3, "Let your AI agents make images", "Claude Code and Codex use the same providers and limits.",
+                CommandInstaller.Installed, "Set Up", () => App.Window?.Navigate("settings", "agents")));
+        var tour = new HyperlinkButton { Content = "New here? Take the quick tour", Padding = new Thickness(0) };
+        tour.Click += (_, _) => App.Window?.ShowTour();
+        var col = Ui.Column(6, Ui.Text("No images yet", 22, bold: true), Ui.Muted("Three steps to get going.", 14));
+        steps.Margin = new Thickness(0, 18, 0, 14);
+        col.Children.Add(steps);
+        col.Children.Add(tour);
+        col.Padding = new Thickness(32, 28, 32, 24);
+        col.MaxWidth = 720;
+        col.HorizontalAlignment = HorizontalAlignment.Left;
+        return new Border { Style = Ui.GetStyle("HeroStyle"), Child = col, Margin = new Thickness(0, 8, 0, 0) };
+    }
+
+    static UIElement FirstStep(int n, string title, string detail, bool done, string action, Action go, bool accent = false)
+    {
+        var mark = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(14), VerticalAlignment = VerticalAlignment.Center };
+        if (done)
+        {
+            mark.Background = new SolidColorBrush(Ui.Hex(0x34C759));
+            mark.Child = new FontIcon { Glyph = "\uE73E", FontSize = 13, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) };
+        }
+        else
+        {
+            mark.Background = Ui.Res<Brush>("WellBrush");
+            var t = Ui.Text(n.ToString(), 13, bold: true);
+            t.HorizontalAlignment = HorizontalAlignment.Center;
+            t.VerticalAlignment = VerticalAlignment.Center;
+            mark.Child = t;
+        }
+        var words = Ui.Column(2, Ui.Text(title, 15, bold: true), Ui.Muted(detail, 13));
+        words.VerticalAlignment = VerticalAlignment.Center;
+        var button = new Button { Content = action, MinWidth = 96, VerticalAlignment = VerticalAlignment.Center };
+        if (accent || (!done && n == 1)) button.Style = Ui.Res<Style>("AccentButtonStyle");
+        button.Click += (_, _) => go();
+        var row = Ui.Columns((mark, Ui.Auto), (words, Ui.Star()), (button, Ui.Auto));
+        if (done) words.Opacity = 0.7;
+        return row;
     }
 }

@@ -1,3 +1,4 @@
+using ImageGenKit.Controls;
 using ImageGenKit.Pages;
 using ImageGenKit.Services;
 using Microsoft.UI;
@@ -46,6 +47,8 @@ public sealed partial class MainWindow : Window
         Root.Loaded += async (_, _) =>
         {
             Navigate(o.Page);
+            if (!Terms.Accepted) ShowTerms();
+            else StartTour();
             await Store.Shared.LoadAsync();
             KeepCommandCurrent();
             await Updater.Shared.CheckAsync(quiet: true);
@@ -58,6 +61,53 @@ public sealed partial class MainWindow : Window
             UpdateButton.IsEnabled = u.State == Updater.Phase.Available;
         });
         Closed += (_, _) => Backend.Shared.Stop();
+    }
+
+    // ---------- first launch: terms, then the welcome tour ----------
+
+    /// The terms come first and cover the whole app until they're accepted.
+    void ShowTerms()
+    {
+        Nav.IsEnabled = false;
+        TermsScreen? screen = null;
+        screen = new TermsScreen(() =>
+        {
+            Root.Children.Remove(screen);
+            Nav.IsEnabled = true;
+            StartTour();
+        });
+        Grid.SetRow(screen, 1);
+        Root.Children.Add(screen);
+    }
+
+    async void StartTour()
+    {
+        var o = App.Options;
+        if (o.TourStep is null && WelcomeTour.Seen) return;
+        await Task.Delay(700);
+        ShowTour(o.TourStep ?? 0, o.TourShowMe);
+    }
+
+    WelcomeTour? tour;
+
+    /// Opens the welcome tour (also from Settings › General).
+    public void ShowTour(int step = 0, bool showMe = false)
+    {
+        if (tour is not null || !Terms.Accepted) return;
+        tour = new WelcomeTour(step, showMe, destination =>
+        {
+            Root.Children.Remove(tour);
+            tour = null;
+            switch (destination)
+            {
+                case TourDestination.Generate: OpenGenerate(); break;
+                case TourDestination.Gallery: Navigate("gallery"); break;
+                case TourDestination.Settings: Navigate("settings", "providers"); break;
+                case TourDestination.LocalModels: Navigate("settings", "local"); break;
+            }
+        });
+        Grid.SetRow(tour, 1);
+        Root.Children.Add(tour);
     }
 
     void Resize(int width, int height)

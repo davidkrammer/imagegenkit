@@ -75,14 +75,29 @@ Remove-Item -Recurse -Force $demoProfile -ErrorAction SilentlyContinue
 $py = (Get-Command python).Source
 & $py (Join-Path $repo 'windows\demo\make_demo.py') $demoProfile
 
-function Start-App([string]$exe, [string[]]$arguments, [string]$cwd) {
+# The demo profile has accepted the terms and seen the tour; a fresh one (no prefs) shows the terms screen first.
+function Write-Prefs([string]$roaming) {
+    New-Item -ItemType Directory -Force (Join-Path $roaming 'ImageGenKit') | Out-Null
+    '{ "termsVersion": 1, "tourVersion": 1 }' | Set-Content -Encoding utf8 (Join-Path $roaming 'ImageGenKit\prefs.json')
+}
+Write-Prefs (Join-Path $demoProfile 'AppData\Roaming')
+$freshRoaming = Join-Path $demoProfile 'AppData\Fresh'
+New-Item -ItemType Directory -Force $freshRoaming | Out-Null
+$emptyProfile = "$demoProfile-empty"
+Remove-Item -Recurse -Force $emptyProfile -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $emptyProfile | Out-Null
+Write-Prefs (Join-Path $emptyProfile 'AppData\Roaming')
+
+function Start-App([string]$exe, [string[]]$arguments, [string]$cwd, [string]$roaming = '', [string]$userProfile = '') {
+    if (-not $userProfile) { $userProfile = $demoProfile }
+    if (-not $roaming) { $roaming = Join-Path $userProfile 'AppData\Roaming' }
     $psi = New-Object System.Diagnostics.ProcessStartInfo $exe
     $psi.Arguments = ($arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
     $psi.UseShellExecute = $false
     $psi.WorkingDirectory = $cwd
-    $psi.EnvironmentVariables['USERPROFILE'] = $demoProfile
-    $psi.EnvironmentVariables['HOME'] = $demoProfile
-    $psi.EnvironmentVariables['APPDATA'] = Join-Path $demoProfile 'AppData\Roaming'
+    $psi.EnvironmentVariables['USERPROFILE'] = $userProfile
+    $psi.EnvironmentVariables['HOME'] = $userProfile
+    $psi.EnvironmentVariables['APPDATA'] = $roaming
     $psi.EnvironmentVariables['OPENAI_API_KEY'] = 'sk-demo'
     $psi.EnvironmentVariables['GEMINI_API_KEY'] = 'demo'
     $psi.EnvironmentVariables['IMAGEGENKIT_NO_UPDATE'] = '1'
@@ -110,16 +125,25 @@ $shots = @(
     @{ Name = '08-settings-local-dark'; Args = @('--page', 'settings', '--theme', 'dark', '--settings-section', 'local') },
     @{ Name = '09-settings-use-light'; Args = @('--page', 'settings', '--theme', 'light', '--settings-section', 'use') },
     @{ Name = '10-settings-limits-dark'; Args = @('--page', 'settings', '--theme', 'dark', '--settings-section', 'limits') },
-    @{ Name = '11-settings-agents-light'; Args = @('--page', 'settings', '--theme', 'light', '--settings-section', 'agents') }
+    @{ Name = '11-settings-agents-light'; Args = @('--page', 'settings', '--theme', 'light', '--settings-section', 'agents') },
+    @{ Name = '12-terms-light'; Args = @('--page', 'overview', '--theme', 'light'); Roaming = $freshRoaming },
+    @{ Name = '13-terms-dark'; Args = @('--page', 'overview', '--theme', 'dark'); Roaming = $freshRoaming },
+    @{ Name = '14-tour-welcome-light'; Args = @('--page', 'overview', '--theme', 'light', '--tour', '0') },
+    @{ Name = '15-tour-demo-light'; Args = @('--page', 'overview', '--theme', 'light', '--tour', '1', '--tour-showme'); Wait = 15 },
+    @{ Name = '16-tour-gallery-dark'; Args = @('--page', 'overview', '--theme', 'dark', '--tour', '2') },
+    @{ Name = '17-tour-provider-light'; Args = @('--page', 'overview', '--theme', 'light', '--tour', '3') },
+    @{ Name = '18-tour-agents-dark'; Args = @('--page', 'overview', '--theme', 'dark', '--tour', '4'); Wait = 12 },
+    @{ Name = '19-tour-done-light'; Args = @('--page', 'overview', '--theme', 'light', '--tour', '5') },
+    @{ Name = '20-overview-empty-light'; Args = @('--page', 'overview', '--theme', 'light'); Profile = $emptyProfile }
 )
 
 $exe = (Resolve-Path $App).Path
 $failed = 0
 foreach ($s in $shots) {
-    $p = Start-App $exe ($s.Args + @('--size', '1360x880')) (Split-Path $exe)
+    $p = Start-App $exe ($s.Args + @('--size', '1360x880')) (Split-Path $exe) $s.Roaming $s.Profile
     try {
         $h = Wait-Window $p
-        Start-Sleep 9   # backend start, data, images
+        Start-Sleep $(if ($s.Wait) { $s.Wait } else { 9 })   # backend start, data, images
         [Shot]::Front($h)
         Start-Sleep 2
         $size = [Shot]::Save($h, (Join-Path $Out "$($s.Name).png"))

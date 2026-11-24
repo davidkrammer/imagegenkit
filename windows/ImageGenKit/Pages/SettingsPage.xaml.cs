@@ -31,6 +31,12 @@ public sealed partial class SettingsPage : Page, IRefreshable
         };
     }
 
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        if (e.Parameter is string { Length: > 0 } wanted) section = wanted; // the tour opens a section
+    }
+
     void Sections_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
         section = (string)(sender.SelectedItem?.Tag ?? "providers");
@@ -113,12 +119,7 @@ public sealed partial class SettingsPage : Page, IRefreshable
         catch (Exception ex) { App.Window?.ShowError("Something went wrong", ex.Message); }
     }
 
-    static async Task SetConfig(Dictionary<string, object?> set, IEnumerable<string>? unset = null)
-    {
-        var state = await Backend.Shared.PostAsync("/api/config", new { set, unset = unset?.ToList() ?? [] });
-        Store.Shared.Apply(state);
-        Store.Shared.NotifyChanged();
-    }
+    static Task SetConfig(Dictionary<string, object?> set, IEnumerable<string>? unset = null) => ProviderSetup.SetConfig(set, unset);
 
     // ---------- Providers ----------
 
@@ -228,88 +229,11 @@ public sealed partial class SettingsPage : Page, IRefreshable
         await Store.Shared.ReloadStateAsync();
     }
 
-    async Task Terminal(ProviderRow p, bool login = false)
-    {
-        string tool = p.Type == "codex-cli" ? "codex" : "grok";
-        bool install = !login && p.Status.Contains("install", StringComparison.OrdinalIgnoreCase);
-        await Backend.Shared.PostAsync("/api/terminal", new { action = $"{(install ? "install" : "login")}-{tool}" });
-        var dialog = new ContentDialog
-        {
-            Title = install ? $"Installing {(tool == "codex" ? "Codex" : "Grok Build")}" : "Log in",
-            Content = install ? "Follow the steps in the terminal window. Then log in." : "Log in in the terminal window, then come back.",
-            PrimaryButtonText = "Check Now", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot,
-        };
-        await dialog.ShowAsync();
-        await Store.Shared.ReloadStateAsync(); // the terminal says "click Check now"; closing checks too
-    }
+    Task Terminal(ProviderRow p, bool login = false) => ProviderSetup.Terminal(p, XamlRoot, login);
 
-    async Task KeyDialog(ProviderRow p)
-    {
-        var box = new PasswordBox { PlaceholderText = "Paste the API key", Width = 380 };
-        var steps = Ui.Column(6);
-        int n = 1;
-        foreach (var step in p.Raw.Arr("steps"))
-        {
-            var t = Ui.Muted($"{n++}. {step.Str("text")}", 13);
-            t.TextWrapping = TextWrapping.Wrap;
-            t.TextTrimming = TextTrimming.None;
-            steps.Children.Add(t);
-        }
-        var content = Ui.Column(14, steps, box);
-        if (p.KeyUrl is { } url)
-        {
-            var link = new HyperlinkButton { Content = "Get a key", Padding = new Thickness(0) };
-            link.Click += (_, _) => OpenUrl(url);
-            content.Children.Add(link);
-        }
-        content.Children.Add(Ui.Faint("Saved in the Windows Credential Manager. Never shared with anyone but the provider.", 12));
-        var dialog = new ContentDialog
-        {
-            Title = $"{p.Label} API key", Content = content, PrimaryButtonText = "Save", CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot,
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary || box.Password.Trim().Length == 0) return;
-        await Run(async () =>
-        {
-            await Backend.Shared.PostAsync("/api/key", new { provider = p.Name, key = box.Password.Trim() });
-            await Store.Shared.ReloadStateAsync();
-        });
-    }
+    Task KeyDialog(ProviderRow p) => ProviderSetup.KeyDialog(p, XamlRoot);
 
-    async Task AddProvider()
-    {
-        var s = Store.Shared;
-        var enabled = s.Enabled;
-        var list = Ui.Column(8);
-        ContentDialog? dialog = null;
-        foreach (var p in s.Providers.Where(p => !enabled.Contains(p.Name)).OrderBy(p => p.IsLocal ? 0 : p.IsSubscription ? 1 : 2))
-        {
-            var text = Ui.Column(2, Ui.Text(p.Label, 14, bold: true));
-            if (p.Tagline is { } t) { var tl = Ui.Muted(t, 12); tl.TextWrapping = TextWrapping.Wrap; tl.TextTrimming = TextTrimming.None; text.Children.Add(tl); }
-            if (p.PriceHint is { } h) text.Children.Add(Ui.Faint(h, 12));
-            var row = Ui.Columns((Ui.Badge(ProviderStyle.Glyph(p.Name, p.Type), ProviderStyle.ColorOf(p.Name, ProviderStyle.IsDark), 34), Ui.Auto), (text, Ui.Star()));
-            var button = new Button { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(12, 10, 12, 10) };
-            button.Click += async (_, _) =>
-            {
-                dialog?.Hide();
-                await Run(async () =>
-                {
-                    await SetConfig(new() { ["order"] = enabled.Append(p.Name).ToList() });
-                    if (p.IsLocal) Select("local");
-                    else if (p.NeedsKey && !p.Ready) await KeyDialog(p);
-                    else if (!p.Ready) await Terminal(p);
-                });
-            };
-            list.Children.Add(button);
-        }
-        if (list.Children.Count == 0) list.Children.Add(Ui.Muted("Every provider is added already."));
-        dialog = new ContentDialog
-        {
-            Title = "Add a provider", Content = new ScrollViewer { Content = list, MaxHeight = 460, Padding = new Thickness(0, 0, 12, 0) },
-            CloseButtonText = "Cancel", XamlRoot = XamlRoot,
-        };
-        await dialog.ShowAsync();
-    }
+    Task AddProvider() => ProviderSetup.AddProviderDialog(XamlRoot, () => Select("local"));
 
     // ---------- Use for ----------
 
@@ -642,6 +566,16 @@ public sealed partial class SettingsPage : Page, IRefreshable
         auto.Toggled += async (_, _) => await Run(() => auto.IsOn ? SetConfig(new(), new[] { "auto_update" }) : SetConfig(new() { ["auto_update"] = false }));
         Body.Children.Add(Card("Update the imagegenkit command by itself", "When you use it without the app. Checks GitHub once a day.", Glyph(""), auto));
 
+        Heading("Help");
+        var tourButton = Ui.LabelButton("\uE7BE", "Show Tour", (_, _) => App.Window?.ShowTour());
+        Body.Children.Add(Card("Welcome tour", "A quick look at what ImageGenKit does, with a hands-on demo.", Glyph("\uE897"), tourButton));
+        string accepted = AppPrefs.Str("termsAcceptedAt") is { } at && DateTimeOffset.TryParse(at, out var when)
+            ? $"Version {Terms.Version}, accepted on {when.LocalDateTime:d}." : $"Version {Terms.Version}.";
+        var legal = Ui.Row(8,
+            Ui.LabelButton("\uE8A5", "Terms of Use", (_, _) => OpenUrl(Terms.Url)),
+            Ui.LabelButton("\uE72E", "Privacy Policy", (_, _) => OpenUrl(Terms.PrivacyUrl)));
+        Body.Children.Add(Card("Terms of use", accepted, Glyph("\uE8A5"), legal));
+
         Heading("About");
         var version = Updater.Current;
         var links = Ui.Row(8,
@@ -650,8 +584,6 @@ public sealed partial class SettingsPage : Page, IRefreshable
         Body.Children.Add(Card($"ImageGenKit {version}", "Free and open source. Made by STRICS IT GmbH, Austria.", Glyph(""), links));
     }
 
-    static void OpenUrl(string url)
-    {
-        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception ex) { Log.Write("url: " + ex.Message); }
-    }
+    static void OpenUrl(string url) => ProviderSetup.OpenUrl(url);
+
 }

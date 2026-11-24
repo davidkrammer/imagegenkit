@@ -7,7 +7,8 @@ public partial class App : Application
     public static MainWindow? Window { get; private set; }
 
     /// Command line for screenshots and tests: --page overview|gallery|history|generate|settings, --theme light|dark,
-    /// --select-latest, --settings-section providers|use|local|limits|agents|general, --prompt "..."
+    /// --select-latest, --settings-section providers|use|local|limits|agents|general, --prompt "...",
+    /// --tour N (open the welcome tour at step N, once the terms are accepted), --tour-showme (run its demo)
     public static LaunchOptions Options { get; } = LaunchOptions.Parse(Environment.GetCommandLineArgs());
 
     public App()
@@ -36,6 +37,8 @@ public sealed class LaunchOptions
     public bool SelectLatest { get; private set; }
     public string SettingsSection { get; private set; } = "providers";
     public string? Prompt { get; private set; }
+    public int? TourStep { get; private set; }
+    public bool TourShowMe { get; private set; }
     public int Width { get; private set; } = 1280;
     public int Height { get; private set; } = 860;
 
@@ -52,6 +55,8 @@ public sealed class LaunchOptions
                 case "--select-latest": o.SelectLatest = true; break;
                 case "--settings-section": o.SettingsSection = next.ToLowerInvariant(); i++; break;
                 case "--prompt": o.Prompt = next; i++; break;
+                case "--tour": o.TourStep = int.TryParse(next, out var n) ? n : 0; i++; break;
+                case "--tour-showme": o.TourShowMe = true; break;
                 case "--size":
                     var p = next.Split('x');
                     if (p.Length == 2 && int.TryParse(p[0], out var w) && int.TryParse(p[1], out var h)) { o.Width = w; o.Height = h; }

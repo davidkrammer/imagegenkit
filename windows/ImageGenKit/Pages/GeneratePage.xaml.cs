@@ -192,19 +192,23 @@ public sealed partial class GeneratePage : Page, IRefreshable
             row++;
         }
 
-        // Provider chips
-        var wrap = Ui.Row(8);
-        foreach (var r in Ready)
-        {
-            var chip = new ToggleButton
+        // Providers: a Windows segmented control (square corners, like Size and Images below), each with its color dot
+        var ready = Ready;
+        var providers = new Segmented { HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var r in ready)
+            providers.Items.Add(new SegmentedItem
             {
-                IsChecked = r.Name == p.Name, CornerRadius = new CornerRadius(999), Padding = new Thickness(12, 6, 14, 6),
-                Content = Ui.Row(7, Ui.Dot(ProviderStyle.ColorOf(r.Name, ProviderStyle.IsDark)), Ui.Text(r.Label, 13)),
-            };
-            chip.Click += (_, _) => { providerId = r.Name; Refresh(); };
-            wrap.Children.Add(chip);
-        }
-        Add("Provider", new ScrollViewer { Content = wrap, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Auto, VerticalScrollMode = ScrollMode.Disabled });
+                Tag = r.Name,
+                Content = Ui.Row(8, Ui.Dot(ProviderStyle.ColorOf(r.Name, ProviderStyle.IsDark)), Ui.Text(r.Label, 13)),
+            });
+        providers.SelectedIndex = Math.Max(0, ready.FindIndex(r => r.Name == p.Name));
+        providers.SelectionChanged += (_, _) =>
+        {
+            if (providers.SelectedItem is not SegmentedItem { Tag: string t } || t == providerId) return;
+            providerId = t;
+            DispatcherQueue.TryEnqueue(Refresh); // rebuild the options for this provider after the click is done
+        };
+        Add("Provider", new ScrollViewer { Content = providers, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalScrollMode = ScrollMode.Auto, VerticalScrollMode = ScrollMode.Disabled });
 
         if (p.IsLocal)
         {

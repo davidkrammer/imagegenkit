@@ -16,3 +16,11 @@ xcuserdata/
 .shots/
 __pycache__/
 *.pyc
+
+# local Claude Code settings
+.claude/
+
+# Windows app build output
+windows/**/bin/
+windows/**/obj/
+out/

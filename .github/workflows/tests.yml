@@ -1,0 +1,104 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    name: CLI (${{ matrix.os }}, Python ${{ matrix.python }}, ${{ matrix.pillow }} Pillow)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        python: ["3.9", "3.13"]
+        pillow: [with, without]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - if: matrix.pillow == 'with'
+        run: python -m pip install --quiet pillow
+      - name: Unit tests
+        run: python -m unittest discover -s cli -v
+        env:
+          IMAGEGENKIT_NO_UPDATE: "1"
+
+  windows-smoke:
+    name: Windows install, engine and app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install the way users do (irm | iex), from a local copy of the repo
+        shell: powershell
+        env:
+          IMAGEGENKIT_NO_PATH: "1"
+          IMAGEGENKIT_START_MENU: ${{ runner.temp }}
+        run: |
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1' -PassThru -WindowStyle Hidden
+          Start-Sleep 2
+          $env:IMAGEGENKIT_RAW = 'http://127.0.0.1:8765'
+          try { Get-Content -Raw install.ps1 | Invoke-Expression } finally { Stop-Process $server.Id }
+          if (-not (Test-Path "$env:USERPROFILE\.local\share\imagegenkit\app\app.js")) { throw 'app files missing' }
+          if (-not (Test-Path "$env:RUNNER_TEMP\ImageGenKit.lnk")) { throw 'Start menu shortcut missing' }
+
+      - name: The command runs from cmd and PowerShell
+        shell: powershell
+        run: |
+          $cmd = "$env:USERPROFILE\.local\bin\imagegenkit.cmd"
+          & $cmd --version
+          if ($LASTEXITCODE) { throw 'imagegenkit --version failed' }
+          & $cmd providers
+          cmd /c "`"$cmd`" local-models list"
+          if ($LASTEXITCODE) { throw 'local-models list failed' }
+
+      - name: The engine downloads, unpacks and starts (CPU and Vulkan builds)
+        shell: pwsh
+        env:
+          IMAGEGENKIT_NO_UPDATE: "1"
+        run: |
+          @'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("igk", "cli/imagegenkit.py")
+          igk = importlib.util.module_from_spec(spec); spec.loader.exec_module(igk)
+          cat = igk.local_catalog()
+          for backend in ("cpu", "vulkan"):
+              try:
+                  exe = igk.install_engine(cat, igk.Progress(0, False), {"local_backend": backend})
+                  print(backend, "OK:", exe)
+              except Exception as e:  # no GPU here: Vulkan may not start
+                  print(backend, "failed:", e)
+                  if backend == "cpu":
+                      sys.exit(1)
+          '@ | Set-Content -Encoding utf8 engine_check.py
+          python engine_check.py
+          if ($LASTEXITCODE) { throw 'engine check failed' }
+
+      - name: The app server answers with its token only
+        shell: pwsh
+        env:
+          IMAGEGENKIT_NO_UPDATE: "1"
+        run: |
+          $p = Start-Process python -ArgumentList 'cli/imagegenkit.py', 'app', '--no-window', '--port', '8799' -PassThru -WindowStyle Hidden
+          Start-Sleep 4
+          $info = Get-Content "$env:USERPROFILE\.config\imagegenkit\app.json" | ConvertFrom-Json
+          $h = @{ 'X-IGK-Token' = $info.token }
+          $state = Invoke-RestMethod -Uri 'http://127.0.0.1:8799/api/state' -Headers $h
+          if ($state.device -ne 'this PC') { throw "unexpected device $($state.device)" }
+          $page = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8799/?t=$($info.token)"
+          if (-not $page.Headers['Content-Security-Policy']) { throw 'no CSP' }
+          try { Invoke-RestMethod -Uri 'http://127.0.0.1:8799/api/state'; throw 'answered without a token' } catch { if ($_.Exception.Message -eq 'answered without a token') { throw } }
+          Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8799/api/quit' -Headers $h -Body '{}' -ContentType 'application/json' | Out-Null
+          Start-Sleep 1
+          Stop-Process $p.Id -ErrorAction SilentlyContinue

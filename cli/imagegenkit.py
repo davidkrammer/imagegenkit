@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""imagegenkit - one command for AI image generation across providers (the CLI of the ImageGenKit Mac app).
+"""imagegenkit - one command for AI image generation across providers (the CLI of the ImageGenKit app).
 
   imagegenkit draft "PROMPT"         quick mockups and ideas   (provider from your settings)
   imagegenkit final "PROMPT"         final designs
@@ -8,10 +8,11 @@
   imagegenkit <provider> "PROMPT"    use one provider directly (openai, grok, codex, xai, gemini, ...)
 
 Providers: Grok and Codex subscriptions (via the Grok Build and Codex CLIs), OpenAI, xAI, Google Gemini,
-OpenRouter, Recraft, Together AI, fal.ai (API keys), and any OpenAI-compatible endpoint you add. API keys live in the macOS Keychain
-("imagegenkit-<provider>"); env vars like OPENAI_API_KEY override them. Settings: ~/.config/imagegenkit/config.json,
-best edited in the ImageGenKit app. Saved image paths go to stdout (one per line); everything else to stderr.
-Stdlib only, Python 3.9+, macOS.
+OpenRouter, Recraft, Together AI, fal.ai (API keys), and any OpenAI-compatible endpoint you add. API keys live in the macOS
+Keychain or the Windows Credential Manager ("imagegenkit-<provider>"); env vars like OPENAI_API_KEY override them.
+Settings: ~/.config/imagegenkit/config.json, best edited in the ImageGenKit app (`imagegenkit app` on Windows).
+Saved image paths go to stdout (one per line); everything else to stderr.
+Stdlib only, Python 3.9+, macOS or Windows (Pillow is used for images when it is installed, but isn't needed).
 """
 import argparse
 import base64
@@ -38,9 +39,20 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.1.0"
-HOMEPAGE = "https://github.com/davidkrammer/imagegenkit"
-GITHUB_REPO = "davidkrammer/imagegenkit"
+VERSION = "1.2.0"
+GITHUB_REPO = "davidkrammer/imagegenkit"  # updates come from this repo (the env overrides below are for tests)
+HOMEPAGE = f"https://github.com/{GITHUB_REPO}"
+IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
+DEVICE = "this Mac" if IS_MAC else "this PC"  # "On this Mac" / "On this PC"
+KEY_STORE = "Keychain" if IS_MAC else "Credential Manager"
+
+if IS_WINDOWS:  # prompts and labels aren't always ASCII; a cp1252 console must not crash the run
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 # The env overrides are for testing against a local server.
 RAW_BASE = os.environ.get("IMAGEGENKIT_RAW_BASE", f"https://raw.githubusercontent.com/{GITHUB_REPO}").rstrip("/")
 RELEASES_API = os.environ.get("IMAGEGENKIT_RELEASES_API", f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
@@ -98,7 +110,7 @@ BUILTIN_PROVIDERS = {
             "env": "XAI_API_KEY", "key_url": "https://console.x.ai"},
     "gemini": {"type": "gemini", "label": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta",
                "env": "GEMINI_API_KEY", "key_url": "https://aistudio.google.com/apikey"},
-    "local": {"type": "local", "label": "On this Mac"},
+    "local": {"type": "local", "label": f"On {DEVICE}"},
 }
 CAN_TRANSPARENT = {"openai"}  # provider types that return real alpha
 CUSTOM_TYPES = ("openai-compatible", "openrouter", "together", "fal")  # adapters for providers in config/catalog
@@ -106,7 +118,7 @@ SUBSCRIPTION_TYPES = {"grok-build", "codex-cli"}  # log in instead of an API key
 FREE_TYPES = SUBSCRIPTION_TYPES | {"local"}  # no per-image cost: never counted against limits
 KEYLESS_TYPES = SUBSCRIPTION_TYPES | {"local"}
 RESERVED = set(TASKS) | {"usage", "update", "check", "models", "set-key", "delete-key", "config", "providers", "provider", "version",
-                         "help", "log", "local-models", "detect"}
+                         "help", "log", "local-models", "detect", "app"}
 
 MIME_BY_EXT = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
@@ -162,7 +174,7 @@ def read_user_config():
     if not CONFIG_FILE.exists():
         return {}
     try:
-        data = json.loads(CONFIG_FILE.read_text())
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except ValueError as e:
         die(f"bad JSON in {CONFIG_FILE}: {e}")
     return data if isinstance(data, dict) else {}
@@ -171,7 +183,7 @@ def read_user_config():
 def write_user_config(data):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = CONFIG_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(CONFIG_FILE)
 
 
@@ -202,7 +214,7 @@ def enable_provider(name):
 def catalog_providers():
     """Entries of the cached catalog (~/.config/imagegenkit/catalog.json), refreshed from GitHub."""
     try:
-        entries = json.loads((CONFIG_DIR / "catalog.json").read_text()).get("providers", [])
+        entries = json.loads((CONFIG_DIR / "catalog.json").read_text(encoding="utf-8")).get("providers", [])
     except (OSError, ValueError, AttributeError):
         return []
     return [e for e in entries if isinstance(e, dict) and e.get("id")] if isinstance(entries, list) else []
@@ -223,7 +235,7 @@ def refresh_catalog():
         return False
     path = CONFIG_DIR / "catalog.json"
     try:
-        old = json.loads(path.read_text())
+        old = json.loads(path.read_text(encoding="utf-8"))
         if str(old.get("updated", "")) >= str(new.get("updated", "")):
             return False
     except (OSError, ValueError):
@@ -291,17 +303,111 @@ def keychain_service(name):
 
 
 def keychain_store(service, key, label):
+    """Store a secret: macOS Keychain, or the Windows Credential Manager (generic credential named <service>)."""
+    if IS_WINDOWS:
+        return wincred_write(service, key, label)
     cmd = f'add-generic-password -U -a "{getpass.getuser()}" -s "{service}" -l "{label}" -w "{key}"\n'
-    r = subprocess.run(["security", "-i"], input=cmd, capture_output=True, text=True)  # stdin keeps the key out of argv
+    try:
+        r = subprocess.run(["security", "-i"], input=cmd, capture_output=True, encoding="utf-8", errors="replace")  # stdin keeps the key out of argv
+    except FileNotFoundError:
+        return False
     return r.returncode == 0
 
 
 def keychain_read(service):
+    if IS_WINDOWS:
+        return wincred_read(service)
     try:
-        r = subprocess.run(["security", "find-generic-password", "-s", service, "-w"], capture_output=True, text=True)
+        r = subprocess.run(["security", "find-generic-password", "-s", service, "-w"], capture_output=True, encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return None
     return (r.stdout.strip() or None) if r.returncode == 0 else None
+
+
+def keychain_delete(service):
+    """True if a stored secret was removed."""
+    if IS_WINDOWS:
+        return wincred_delete(service)
+    try:
+        r = subprocess.run(["security", "delete-generic-password", "-s", service], capture_output=True,
+                           encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return False
+    return r.returncode == 0
+
+
+# Windows Credential Manager (advapi32 Cred* API) through ctypes: no extra packages, and the key never shows up in a
+# command line. Entries are generic credentials named "imagegenkit-<provider>" (Control Panel > Credential Manager).
+_CRED_TYPE_GENERIC = 1
+_CRED_PERSIST_LOCAL_MACHINE = 2
+
+
+def _wincred():
+    import ctypes
+    from ctypes import wintypes
+
+    class FILETIME(ctypes.Structure):
+        _fields_ = [("dwLowDateTime", wintypes.DWORD), ("dwHighDateTime", wintypes.DWORD)]
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
+                    ("Comment", wintypes.LPWSTR), ("LastWritten", FILETIME), ("CredentialBlobSize", wintypes.DWORD),
+                    ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)), ("Persist", wintypes.DWORD),
+                    ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
+                    ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
+
+    adv = ctypes.WinDLL("advapi32", use_last_error=True)
+    adv.CredWriteW.argtypes = [ctypes.POINTER(CREDENTIAL), wintypes.DWORD]
+    adv.CredWriteW.restype = wintypes.BOOL
+    adv.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(ctypes.POINTER(CREDENTIAL))]
+    adv.CredReadW.restype = wintypes.BOOL
+    adv.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+    adv.CredDeleteW.restype = wintypes.BOOL
+    adv.CredFree.argtypes = [ctypes.c_void_p]
+    adv.CredFree.restype = None
+    return ctypes, CREDENTIAL, adv
+
+
+def wincred_write(service, secret, label):
+    try:
+        ctypes, CREDENTIAL, adv = _wincred()
+    except (ImportError, OSError, AttributeError):
+        return False
+    blob = secret.encode("utf-16-le")  # what other Windows tools (cmdkey, Credential Manager UI) expect
+    buf = (ctypes.c_ubyte * len(blob)).from_buffer_copy(blob)
+    cred = CREDENTIAL(Type=_CRED_TYPE_GENERIC, TargetName=service, Comment=label, CredentialBlobSize=len(blob),
+                      CredentialBlob=ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte)),
+                      Persist=_CRED_PERSIST_LOCAL_MACHINE, UserName=getpass.getuser())
+    return bool(adv.CredWriteW(ctypes.byref(cred), 0))
+
+
+def wincred_read(service):
+    try:
+        ctypes, CREDENTIAL, adv = _wincred()
+    except (ImportError, OSError, AttributeError):
+        return None
+    p = ctypes.POINTER(CREDENTIAL)()
+    if not adv.CredReadW(service, _CRED_TYPE_GENERIC, 0, ctypes.byref(p)):
+        return None
+    try:
+        raw = ctypes.string_at(p.contents.CredentialBlob, p.contents.CredentialBlobSize)
+    finally:
+        adv.CredFree(p)
+    if not raw:
+        return None
+    try:
+        text = raw.decode("utf-16-le") if len(raw) % 2 == 0 and b"\0" in raw else raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("utf-8", "replace")
+    return text.strip() or None
+
+
+def wincred_delete(service):
+    try:
+        ctypes, CREDENTIAL, adv = _wincred()
+    except (ImportError, OSError, AttributeError):
+        return False
+    return bool(adv.CredDeleteW(service, _CRED_TYPE_GENERIC, 0))
 
 
 def key_for(spec):
@@ -313,7 +419,7 @@ def key_for(spec):
         k = keychain_read(f"imagegen-{spec['name']}")
         if k:
             keychain_store(keychain_service(spec["name"]), k, f"ImageGenKit {spec['label']} API key")
-    return (k, "Keychain") if k else (None, None)
+    return (k, KEY_STORE) if k else (None, None)
 
 
 def require_key(spec):
@@ -327,14 +433,44 @@ def codex_bin():
     g = shutil.which("codex")
     if g:
         return g
-    candidates = [Path("/opt/homebrew/bin/codex"), Path("/usr/local/bin/codex"), Path.home() / ".local/bin/codex"]
-    candidates += sorted(Path.home().glob(".nvm/versions/node/*/bin/codex"), reverse=True)
+    if IS_WINDOWS:
+        appdata = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+        candidates = [appdata / "npm" / "codex.cmd", Path.home() / ".local" / "bin" / "codex.exe"]
+        candidates += sorted(Path(os.environ.get("NVM_HOME") or appdata / "nvm").glob("v*/codex.cmd"), reverse=True)
+    else:
+        candidates = [Path("/opt/homebrew/bin/codex"), Path("/usr/local/bin/codex"), Path.home() / ".local/bin/codex"]
+        candidates += sorted(Path.home().glob(".nvm/versions/node/*/bin/codex"), reverse=True)
     return next((str(c) for c in candidates if c.exists()), None)
 
 
 def grok_bin():
-    g = shutil.which("grok") or str(GROK_HOME / "bin" / "grok")
-    return g if Path(g).exists() else None
+    g = shutil.which("grok")
+    if not g:
+        names = ("grok.exe", "grok.cmd", "grok") if IS_WINDOWS else ("grok",)
+        g = next((str(GROK_HOME / "bin" / n) for n in names if (GROK_HOME / "bin" / n).exists()), None)
+    return g if g and Path(g).exists() else None
+
+
+def launcher(exe):
+    """The argv prefix that runs a CLI. On Windows an npm .cmd shim goes through cmd.exe, which cuts multi-line
+    arguments (our prompts) at the first newline, so the shim's node script is run directly when it can be found."""
+    if not (IS_WINDOWS and exe and exe.lower().endswith((".cmd", ".bat"))):
+        return [exe]
+    try:
+        shim = Path(exe).read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return [exe]
+    m = re.search(r'%(?:~dp0|dp0%)\\?([^"%\r\n]+\.(?:c?js|mjs))', shim)
+    script = (Path(exe).parent / m.group(1)) if m else None
+    node = shutil.which("node") or (str(Path(exe).parent / "node.exe") if (Path(exe).parent / "node.exe").exists() else None)
+    if script and script.exists() and node:
+        return [node, str(script)]
+    return [exe]
+
+
+def show_cmd(cmd):
+    """A command line for --dry-run, quoted for this system's shell."""
+    return subprocess.list2cmdline(cmd) if IS_WINDOWS else " ".join(shlex.quote(c) for c in cmd)
 
 
 def readiness(spec):
@@ -446,7 +582,7 @@ def data_uri(path):
 
 def read_prompt(a):
     if a.prompt_file:
-        text = Path(a.prompt_file).expanduser().read_text()
+        text = Path(a.prompt_file).expanduser().read_text(encoding="utf-8")
     elif a.prompt == "-":
         text = sys.stdin.read()
     else:
@@ -533,15 +669,13 @@ def save_images(images, out, prompt, overwrite, cfg):
 
 
 def convert_image(data, mime, want):
-    """Convert to PNG or JPEG via macOS sips when -o asks for that format. Keeps the original if it fails."""
+    """Convert to PNG or JPEG when -o asks for that format. Keeps the original if it fails."""
     GROK_WORKDIR.mkdir(parents=True, exist_ok=True)
     src = GROK_WORKDIR / f"{uuid.uuid4().hex}{EXT_BY_MIME.get(mime, '.img')}"
     dst = src.with_suffix(".out" + EXT_BY_MIME[want])
-    fmt = ["-s", "format", "png"] if want == "image/png" else ["-s", "format", "jpeg", "-s", "formatOptions", "90"]
     try:
         src.write_bytes(data)
-        subprocess.run(["sips"] + fmt + [str(src), "--out", str(dst)], capture_output=True)
-        if dst.exists() and dst.stat().st_size:
+        if image_convert(src, dst, "png" if want == "image/png" else "jpeg", quality=90):
             return dst.read_bytes(), want
     finally:
         for f in (src, dst):
@@ -550,10 +684,159 @@ def convert_image(data, mime, want):
     return data, mime
 
 
+# ---------- image files ----------
+# Sizes and alpha are read from the file headers (no tools needed). Converting and resizing uses Pillow when it is
+# installed, else macOS sips, else Windows Imaging Component through the PowerShell that ships with Windows.
+
+def image_info(path):
+    """(width, height, has_alpha) from a PNG, JPEG, GIF, WebP or BMP header, or None."""
+    try:
+        with open(path, "rb") as fh:
+            d = fh.read(1 << 16)
+    except OSError:
+        return None
+    try:
+        if d[:8] == b"\x89PNG\r\n\x1a\n":
+            w, h = int.from_bytes(d[16:20], "big"), int.from_bytes(d[20:24], "big")
+            alpha = d[25] in (4, 6)
+            i = 8
+            while not alpha and i + 8 <= len(d):
+                n, kind = int.from_bytes(d[i:i + 4], "big"), d[i + 4:i + 8]
+                if kind == b"tRNS":
+                    alpha = True
+                if kind in (b"IDAT", b"IEND"):
+                    break
+                i += 12 + n
+            return w, h, alpha
+        if d[:3] == b"\xff\xd8\xff":
+            with open(path, "rb") as fh:
+                d = fh.read()
+            i = 2
+            while i + 9 < len(d):
+                if d[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = d[i + 1]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7 or marker == 0xFF:
+                    i += 1 if marker == 0xFF else 2
+                    continue
+                n = int.from_bytes(d[i + 2:i + 4], "big")
+                if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                    return int.from_bytes(d[i + 7:i + 9], "big"), int.from_bytes(d[i + 5:i + 7], "big"), False
+                i += 2 + n
+            return None
+        if d[:6] in (b"GIF87a", b"GIF89a"):
+            return int.from_bytes(d[6:8], "little"), int.from_bytes(d[8:10], "little"), False
+        if d[:4] == b"RIFF" and d[8:12] == b"WEBP":
+            kind = d[12:16]
+            if kind == b"VP8 ":
+                return int.from_bytes(d[26:28], "little") & 0x3FFF, int.from_bytes(d[28:30], "little") & 0x3FFF, False
+            if kind == b"VP8L":
+                b = int.from_bytes(d[21:25], "little")
+                return (b & 0x3FFF) + 1, ((b >> 14) & 0x3FFF) + 1, bool((b >> 28) & 1)
+            if kind == b"VP8X":
+                return int.from_bytes(d[24:27], "little") + 1, int.from_bytes(d[27:30], "little") + 1, bool(d[20] & 0x10)
+            return None
+        if d[:2] == b"BM":
+            return (int.from_bytes(d[18:22], "little", signed=True), abs(int.from_bytes(d[22:26], "little", signed=True)),
+                    int.from_bytes(d[28:30], "little") == 32)
+    except IndexError:
+        return None
+    return None
+
+
+def _pil():
+    if os.environ.get("IMAGEGENKIT_NO_PIL"):
+        return None
+    try:
+        from PIL import Image
+        return Image
+    except ImportError:
+        return None
+
+
+_WIC_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName PresentationCore
+$I = [Windows.Media.Imaging.BitmapCreateOptions]
+$fs = [IO.File]::OpenRead($env:IGK_SRC)
+try {
+  $img = [Windows.Media.Imaging.BitmapDecoder]::Create($fs, $I::PreservePixelFormat, [Windows.Media.Imaging.BitmapCacheOption]::OnLoad).Frames[0]
+} finally { $fs.Close() }
+$max = [int]$env:IGK_MAX
+if ($max -gt 0) {
+  $s = [Math]::Min(1.0, $max / [Math]::Max($img.PixelWidth, $img.PixelHeight))
+  if ($s -lt 1.0) { $img = New-Object Windows.Media.Imaging.TransformedBitmap($img, (New-Object Windows.Media.ScaleTransform($s, $s))) }
+}
+$P = [Windows.Media.PixelFormats]
+switch ($env:IGK_FMT) {
+  'png'  { $pf = if ($env:IGK_ALPHA -eq '1') { $P::Bgra32 } else { $P::Bgr24 }; $enc = New-Object Windows.Media.Imaging.PngBitmapEncoder }
+  'jpeg' { $pf = $P::Bgr24; $enc = New-Object Windows.Media.Imaging.JpegBitmapEncoder; $enc.QualityLevel = [int]$env:IGK_Q }
+  'bmp'  { $pf = $P::Bgr24; $enc = New-Object Windows.Media.Imaging.BmpBitmapEncoder }
+}
+$img = New-Object Windows.Media.Imaging.FormatConvertedBitmap($img, $pf, $null, 0)
+$enc.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($img))
+$out = [IO.File]::Create($env:IGK_DST)
+try { $enc.Save($out) } finally { $out.Close() }
+"""
+
+
+def image_convert(src, dst, fmt, quality=None, max_px=None):
+    """Write src as fmt ('png', 'jpeg' or 'bmp', 24-bit) to dst, scaled down to max_px on the long side.
+    PNG keeps transparency. Returns True when dst was written."""
+    src, dst = Path(src), Path(dst)
+    info = image_info(src)
+    alpha = bool(info and info[2]) and fmt == "png"
+    quality = int(quality or 90)
+    Image = _pil()
+    if Image:
+        try:
+            with Image.open(src) as im:
+                im.load()
+                if max_px:
+                    im.thumbnail((max_px, max_px), getattr(Image, "LANCZOS", 1))
+                has_alpha = im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
+                if fmt == "png":
+                    im = im.convert("RGBA" if has_alpha else "RGB")
+                    im.save(dst, "PNG")
+                else:
+                    if has_alpha:  # flatten onto white, like a printout
+                        rgba = im.convert("RGBA")
+                        im = Image.new("RGB", rgba.size, (255, 255, 255))
+                        im.paste(rgba, mask=rgba.split()[-1])
+                    im = im.convert("RGB")
+                    im.save(dst, "JPEG", quality=quality) if fmt == "jpeg" else im.save(dst, "BMP")
+            return dst.is_file() and dst.stat().st_size > 0
+        except (OSError, ValueError, SyntaxError):
+            pass  # a format Pillow can't read: try the system's decoder
+    if IS_MAC:
+        args = ["-s", "format", fmt] + (["-s", "formatOptions", str(quality)] if fmt == "jpeg" else [])
+        args += ["-Z", str(max_px)] if max_px else []
+        try:
+            subprocess.run(["sips"] + args + [str(src), "--out", str(dst)], capture_output=True, timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return False
+    elif IS_WINDOWS:
+        env = dict(os.environ, IGK_SRC=str(src.resolve()), IGK_DST=str(dst.resolve()), IGK_FMT=fmt,
+                   IGK_Q=str(quality), IGK_MAX=str(max_px or 0), IGK_ALPHA="1" if alpha else "0")
+        ps = shutil.which("powershell") or os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                                                        r"System32\WindowsPowerShell\v1.0\powershell.exe")
+        try:
+            script = base64.b64encode(_WIC_SCRIPT.encode("utf-16-le")).decode()  # stdin scripts break on blocks
+            subprocess.run([ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", script],
+                           env=env, capture_output=True, stdin=subprocess.DEVNULL, timeout=120,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.SubprocessError):
+            return False
+    else:
+        return False
+    return dst.is_file() and dst.stat().st_size > 0
+
+
 def append_log(entry):
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with LOG_FILE.open("a") as f:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as e:
         log(f"  (could not write log: {e})")
@@ -569,15 +852,12 @@ def archive_thumbs(ts, paths):
     thumbs = []
     for p in paths:
         try:
-            alpha = "hasAlpha: yes" in subprocess.run(["sips", "-g", "hasAlpha", str(p)], capture_output=True,
-                                                      text=True, timeout=30).stdout
+            alpha = bool((image_info(p) or (0, 0, False))[2])
             out = THUMB_DIR / ts[:7] / (thumb_key(ts, p) + (".png" if alpha else ".jpg"))
             out.parent.mkdir(parents=True, exist_ok=True)
-            fmt = ["-s", "format", "png"] if alpha else ["-s", "format", "jpeg", "-s", "formatOptions", "72"]
-            subprocess.run(["sips", "-Z", str(THUMB_PX)] + fmt + [str(p), "--out", str(out)],
-                           capture_output=True, timeout=60)
+            image_convert(p, out, "png" if alpha else "jpeg", quality=72, max_px=THUMB_PX)
             thumbs.append(str(out) if out.exists() else None)
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError, ValueError):
             thumbs.append(None)
     return thumbs
 
@@ -633,14 +913,11 @@ def nearest_aspect(aspect, allowed):
 
 
 def image_aspect(path):
-    """'W:H' of an image via macOS sips, or None."""
-    try:
-        out = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
-                             capture_output=True, text=True).stdout
-        w = int(re.search(r"pixelWidth: (\d+)", out).group(1))
-        h = int(re.search(r"pixelHeight: (\d+)", out).group(1))
-    except (OSError, AttributeError, ValueError):
+    """'W:H' of an image (from its header), or None."""
+    info = image_info(path)
+    if not info or info[0] <= 0 or info[1] <= 0:
         return None
+    w, h = info[0], info[1]
     return f"{w}:{h}" if 1 / 3 <= w / h <= 3 else None
 
 
@@ -738,7 +1015,7 @@ def month_usage(cfg):
     month = dt.datetime.now().strftime("%Y-%m")
     cost = images = runs = 0
     try:
-        with LOG_FILE.open() as f:
+        with LOG_FILE.open(encoding="utf-8") as f:
             for line in f:
                 if f'"ts": "{month}' not in line:
                     continue
@@ -979,18 +1256,18 @@ def run_grok(a, cfg, spec, task):
     instruction = (f"{call}, using exactly the text between the <prompt> tags as the prompt.\n\n"
                    f"<prompt>\n{prompt}\n</prompt>\n\nThen reply with just: done")
     sid = str(uuid.uuid4())
-    cmd = [g, "-p", instruction, "--tools", "image_gen,image_edit", "--system-prompt-override", GROK_SYSTEM,
+    cmd = launcher(g) + ["-p", instruction, "--tools", "image_gen,image_edit", "--system-prompt-override", GROK_SYSTEM,
            "--disable-web-search", "--no-subagents", "--no-plan", "--max-turns", str(2 + a.n),
            "--always-approve", "--session-id", sid, "--cwd", str(GROK_WORKDIR)]
     if a.model:
         cmd += ["-m", a.model]
     log(f"Grok {tool} | {len(refs)} ref(s) | aspect {aspect or 'auto'} | n={a.n}")
     if a.dry_run:
-        return log(" ".join(shlex.quote(c) for c in cmd))
+        return log(show_cmd(cmd))
     GROK_WORKDIR.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=GROK_WORKDIR)
+        r = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=TIMEOUT, cwd=GROK_WORKDIR)
     except subprocess.TimeoutExpired:
         die(f"Grok timed out after {TIMEOUT}s")
     files = sorted(GROK_HOME.glob(f"sessions/*/{sid}/images/*"), key=lambda f: f.stat().st_mtime)
@@ -1003,7 +1280,7 @@ def run_grok(a, cfg, spec, task):
     log(f"  grok session {sid}")
     usage = None
     try:
-        u = subprocess.run([g, "usage", sid], capture_output=True, text=True, timeout=30)
+        u = subprocess.run(launcher(g) + ["usage", sid], capture_output=True, encoding="utf-8", errors="replace", timeout=30)
         sess = json.loads(u.stdout).get("session", {})
         usage = {k: sess.get(k) for k in ("inputTokens", "outputTokens", "cachedReadTokens", "costUsdTicks",
                                          "primaryModelId")}
@@ -1143,19 +1420,19 @@ def run_codex(a, cfg, spec, task):
         call += " with " + ", ".join(hints)
     instruction = (f"{call}, passing exactly the text between the <prompt> tags as the prompt. Do not run shell "
                    f"commands or edit files.\n\n<prompt>\n{prompt}\n</prompt>\n\nThen reply with just: done")
-    cmd = [c, "exec", "--json", "--skip-git-repo-check", "-C", str(CODEX_WORKDIR), "-s", "read-only",
+    cmd = launcher(c) + ["exec", "--json", "--skip-git-repo-check", "-C", str(CODEX_WORKDIR), "-s", "read-only",
            "-c", "model_reasoning_effort=low"]
     for r in refs:
         cmd += ["-i", str(r.resolve())]
     cmd.append(instruction)
     log(f"Codex image_gen | {len(refs)} ref(s) | {', '.join(hints) or 'auto'} | n={a.n}")
     if a.dry_run:
-        return log(" ".join(shlex.quote(x) for x in cmd))
+        return log(show_cmd(cmd))
     CODEX_WORKDIR.mkdir(parents=True, exist_ok=True)
     gen_dir = CODEX_HOME / "generated_images"
     t0 = time.time()
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=CODEX_WORKDIR,
+        r = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace", timeout=TIMEOUT, cwd=CODEX_WORKDIR,
                            stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         die(f"Codex timed out after {TIMEOUT}s")
@@ -1169,7 +1446,8 @@ def run_codex(a, cfg, spec, task):
             thread = ev.get("thread_id")
         elif ev.get("type") == "turn.failed":
             failure = (ev.get("error") or {}).get("message", "turn failed")
-        paths += re.findall(r'[^"\s]*generated_images/[^"\s]+\.(?:png|jpe?g|webp)', line)
+        for p in re.findall(r'[^"\s]*generated_images(?:/|\\\\|\\)[^"\s]+?\.(?:png|jpe?g|webp)', line):
+            paths.append(p.replace("\\\\", "\\"))  # Windows paths arrive JSON-escaped
     files = [Path(p) for p in dict.fromkeys(paths) if Path(p).exists()]
     if not files and thread and not failure:
         files = sorted((f for f in (gen_dir / thread).glob("*") if f.stat().st_mtime >= t0 - 1),
@@ -1188,7 +1466,7 @@ def run_codex(a, cfg, spec, task):
            refs, images, None, t0, {"codex_thread": thread})
 
 
-# ---------- local models (On this Mac) ----------
+# ---------- local models (On this Mac / On this PC) ----------
 # Open image models run on the Mac by stable-diffusion.cpp (sd-cli). The engine and the model files are downloaded
 # once (sha256-checked); catalog/local.json lists the engine build, curated models, the shared text encoders and
 # VAEs, and the model families ("recipes") with their engine settings.
@@ -1212,17 +1490,68 @@ def gb(n):
 
 
 def apple_silicon():
+    """Whether local models can run here: a Mac with Apple silicon, or 64-bit Windows on x64 (the engine has
+    Vulkan and CPU builds for it). The name stays for compatibility with older tests and the Mac app."""
+    if IS_WINDOWS:
+        return windows_x64()
     try:
-        return subprocess.run(["sysctl", "-n", "hw.optional.arm64"], capture_output=True, text=True).stdout.strip() == "1"
+        return subprocess.run(["sysctl", "-n", "hw.optional.arm64"], capture_output=True, encoding="utf-8", errors="replace").stdout.strip() == "1"
     except OSError:
         return False
 
 
+def windows_x64():
+    arch = (os.environ.get("PROCESSOR_ARCHITEW6432") or os.environ.get("PROCESSOR_ARCHITECTURE") or "").upper()
+    return IS_WINDOWS and arch in ("AMD64", "X86_64") and sys.maxsize > 2 ** 32
+
+
 def mac_ram_gb():
+    """Installed memory in GB (any system)."""
+    if IS_WINDOWS:
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            st = MEMORYSTATUSEX(dwLength=ctypes.sizeof(MEMORYSTATUSEX))
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
+            return round(st.ullTotalPhys / 2 ** 30)
+        except (OSError, AttributeError, ValueError):
+            return 0
     try:
-        return round(int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2 ** 30)
+        return round(int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, encoding="utf-8", errors="replace").stdout) / 2 ** 30)
     except (OSError, ValueError):
         return 0
+
+
+def local_backend(cfg=None):
+    """Which engine build to use on Windows: vulkan (any recent NVIDIA, AMD or Intel GPU) or cpu.
+    Config local_backend or env IMAGEGENKIT_LOCAL_BACKEND picks one."""
+    cfg = cfg if cfg is not None else load_config()
+    b = str(os.environ.get("IMAGEGENKIT_LOCAL_BACKEND") or cfg.get("local_backend") or "vulkan").lower()
+    return b if b in ("vulkan", "cpu") else "vulkan"
+
+
+def engine_spec(cat, cfg=None):
+    """The engine build for this system from catalog/local.json: `engine` (macOS arm64) or
+    `engines["windows-x64-<backend>"]`. Each spec gets a `dir` (its folder under engine/)."""
+    if IS_WINDOWS:
+        engines = cat.get("engines") or {}
+        backend = local_backend(cfg)
+        eng = engines.get(f"windows-x64-{backend}") or engines.get("windows-x64-vulkan") or engines.get("windows-x64-cpu")
+        if not eng:
+            raise Unavailable("the local model list has no Windows engine yet (try: imagegenkit local-models list --refresh)")
+        eng = dict(eng)
+        eng.setdefault("binary", "sd-cli.exe")
+        eng.setdefault("dir", f"{eng['version']}-{eng.get('backend', backend)}")
+        return eng
+    eng = dict(cat["engine"])
+    eng.setdefault("dir", eng["version"])
+    return eng
 
 
 def local_catalog(refresh=False):
@@ -1231,7 +1560,7 @@ def local_catalog(refresh=False):
     here = Path(__file__).resolve().parent
     for path in (LOCAL_CATALOG_CACHE, here / "local.json", here.parent / "catalog" / "local.json"):  # app bundle, checkout
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict) and data.get("engine"):
                 found.append(data)
         except (OSError, ValueError):
@@ -1253,7 +1582,7 @@ def local_catalog(refresh=False):
         if best:
             try:
                 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-                LOCAL_CATALOG_CACHE.write_text(json.dumps(best))
+                LOCAL_CATALOG_CACHE.write_text(json.dumps(best), encoding="utf-8")
             except OSError:
                 pass
     if not best:
@@ -1263,7 +1592,7 @@ def local_catalog(refresh=False):
 
 def local_registry():
     try:
-        data = json.loads(LOCAL_REGISTRY.read_text())
+        data = json.loads(LOCAL_REGISTRY.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
     if not isinstance(data, dict):
@@ -1275,7 +1604,7 @@ def local_registry():
 def save_local_registry(data):
     LOCAL_HOME.mkdir(parents=True, exist_ok=True)
     tmp = LOCAL_REGISTRY.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(LOCAL_REGISTRY)
 
 
@@ -1295,8 +1624,8 @@ def local_engine():
     e = local_registry().get("engine") or {}
     if not e.get("version"):
         return None
-    exe = LOCAL_ENGINES / e["version"] / e.get("binary", "sd-cli")
-    return str(exe) if os.access(exe, os.X_OK) else None
+    exe = LOCAL_ENGINES / e.get("dir", e["version"]) / e.get("binary", "sd-cli")
+    return str(exe) if exe.is_file() and os.access(exe, os.X_OK) else None
 
 
 def local_models():
@@ -1305,7 +1634,7 @@ def local_models():
 
 def local_readiness():
     if not apple_silicon():
-        return False, "needs a Mac with Apple silicon"
+        return False, "needs 64-bit Windows on x64" if IS_WINDOWS else "needs a Mac with Apple silicon"
     if not local_engine():
         return False, "no local model downloaded"
     n = len(local_models())
@@ -1315,7 +1644,7 @@ def local_readiness():
 def local_check():
     exe = local_engine()
     try:
-        r = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=60)
+        r = subprocess.run([exe, "--help"], capture_output=True, encoding="utf-8", errors="replace", timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
         return "error", f"engine doesn't start: {e}"
     if r.returncode != 0:
@@ -1441,35 +1770,62 @@ def fetch_file(url, dest, size, sha256, progress, label, auth=False):
     progress.add(0, label, force=True)  # the last chunk's update may have been skipped
 
 
-def install_engine(cat, progress):
-    eng = cat["engine"]
-    dest = LOCAL_ENGINES / eng["version"]
-    exe = dest / eng.get("binary", "sd-cli")
-    if not os.access(exe, os.X_OK):
-        archive = LOCAL_ENGINES / f"{eng['version']}.zip"
+def unpack_zip(archive, dest):
+    """Unpack a zip (keeps Unix permissions on macOS through ditto)."""
+    if IS_MAC:
+        return subprocess.run(["ditto", "-x", "-k", str(archive), str(dest)], capture_output=True).returncode == 0
+    import zipfile
+    try:
+        with zipfile.ZipFile(archive) as z:
+            root = Path(dest).resolve()
+            for info in z.infolist():
+                target = (root / info.filename).resolve()
+                if root != target and root not in target.parents:  # no "../" tricks
+                    return False
+                z.extract(info, root)
+                mode = info.external_attr >> 16
+                if mode and not IS_WINDOWS:
+                    os.chmod(target, mode & 0o777)
+        return True
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def install_engine(cat, progress, cfg=None):
+    eng = engine_spec(cat, cfg)
+    binary = eng.get("binary", "sd-cli")
+    dest = LOCAL_ENGINES / eng["dir"]
+    exe = dest / binary
+    if not (exe.is_file() and os.access(exe, os.X_OK)):
+        archive = LOCAL_ENGINES / f"{eng['dir']}.zip"
         fetch_file(eng["url"], archive, eng.get("size"), eng.get("sha256"), progress, "engine")
-        tmp = LOCAL_ENGINES / f".{eng['version']}.tmp"
+        tmp = LOCAL_ENGINES / f".{eng['dir']}.tmp"
         shutil.rmtree(tmp, ignore_errors=True)
-        if subprocess.run(["ditto", "-x", "-k", str(archive), str(tmp)], capture_output=True).returncode != 0:
+        if not unpack_zip(archive, tmp):
             raise ApiError(0, "couldn't unpack the engine")
-        found = next((p for p in tmp.rglob(eng.get("binary", "sd-cli")) if p.is_file()), None)
+        found = next((p for p in tmp.rglob(binary) if p.is_file()), None)
         if not found:
-            raise ApiError(0, "the engine download has no sd-cli")
+            raise ApiError(0, f"the engine download has no {binary}")
         shutil.rmtree(dest, ignore_errors=True)
         found.parent.rename(dest)
         shutil.rmtree(tmp, ignore_errors=True)
         archive.unlink()
     try:
-        ok = subprocess.run([str(exe), "--help"], capture_output=True, timeout=60).returncode == 0
+        ok = subprocess.run([str(exe), "--help"], capture_output=True, timeout=60,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode == 0
     except (OSError, subprocess.SubprocessError):
         ok = False
     if not ok:
-        raise ApiError(0, "the engine doesn't start on this Mac")
+        hint = " (install the latest graphics driver, or use the CPU build: imagegenkit config set local_backend cpu)" \
+            if IS_WINDOWS and eng.get("backend", "vulkan") == "vulkan" else ""
+        raise ApiError(0, f"the engine doesn't start on {DEVICE}{hint}")
     for old in LOCAL_ENGINES.iterdir():
         if old.is_dir() and old != dest:
             shutil.rmtree(old, ignore_errors=True)
     reg = local_registry()
-    reg["engine"] = {"version": eng["version"], "binary": eng.get("binary", "sd-cli")}
+    reg["engine"] = {"version": eng["version"], "binary": binary, "dir": eng["dir"]}
+    if eng.get("backend"):
+        reg["engine"]["backend"] = eng["backend"]
     save_local_registry(reg)
     return str(exe)
 
@@ -1660,9 +2016,14 @@ def cmd_local_list(a, cfg):
     ids = {m["id"] for m in installed if m["ready"]}
     used = sum(f.stat().st_size for f in LOCAL_MODELS.rglob("*") if f.is_file()) if LOCAL_MODELS.exists() else 0
     free = shutil.disk_usage(LOCAL_HOME if LOCAL_HOME.exists() else Path.home()).free
-    out = {"supported": apple_silicon(), "ram_gb": mac_ram_gb(),
+    try:
+        eng = engine_spec(cat, cfg)
+    except Unavailable:
+        eng = {"version": None}
+    out = {"supported": apple_silicon() and bool(eng.get("version")), "ram_gb": mac_ram_gb(), "platform": sys.platform,
            "engine": {"installed": bool(local_engine()), "version": (reg.get("engine") or {}).get("version"),
-                      "latest": cat["engine"]["version"], "size": cat["engine"].get("size")},
+                      "backend": (reg.get("engine") or {}).get("backend"), "latest": eng.get("version"),
+                      "size": eng.get("size")},
            "models": installed, "catalog": [dict(m, installed=m["id"] in ids) for m in cat["models"]],
            "recipes": {k: {"name": r["name"], "edit": r.get("edit", False)} for k, r in cat["recipes"].items()},
            "dir": str(LOCAL_MODELS), "bytes": used, "free": free}
@@ -1737,8 +2098,10 @@ def cmd_local_search(a, cfg):
 
 def cmd_local_add(a, cfg):
     if not apple_silicon():
-        die("local models need a Mac with Apple silicon (M1 or newer)")
+        die("local models need 64-bit Windows on an x64 PC" if IS_WINDOWS else
+            "local models need a Mac with Apple silicon (M1 or newer)")
     cat = local_catalog()
+    eng = engine_spec(cat, cfg)
     m = resolve_local(a.model, cat, a.recipe, a.file)
     rec = cat["recipes"][m["recipe"]]
     main_slot = rec.get("main", "diffusion_model")
@@ -1757,7 +2120,7 @@ def cmd_local_add(a, cfg):
         files[slot] = str(dest.relative_to(LOCAL_MODELS))
         if not any(j[2] == dest for j in jobs):
             jobs.append((Path(c["path"]).name, hf_file_url(c["repo"], c["path"]), dest, c["size"], c.get("sha256"), True))
-    need_engine = not local_engine()
+    need_engine = not local_engine() or (local_registry().get("engine") or {}).get("dir", eng["dir"]) != eng["dir"]
 
     def remaining(size, dest):
         if dest.is_file():
@@ -1766,21 +2129,21 @@ def cmd_local_add(a, cfg):
         return max(0, (size or 0) - (part.stat().st_size if part.exists() else 0))
 
     todo = [j for j in jobs if not (j[2].is_file() and (not j[3] or j[2].stat().st_size == j[3]))]
-    need = sum(remaining(j[3], j[2]) for j in todo) + (cat["engine"].get("size", 0) * 3 if need_engine else 0)
+    need = sum(remaining(j[3], j[2]) for j in todo) + (eng.get("size", 0) * 3 if need_engine else 0)
     LOCAL_MODELS.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(LOCAL_MODELS).free
-    if need and free - need < 5e9:  # keep 5 GB free: macOS starts clearing caches when the disk is nearly full
+    if need and free - need < 5e9:  # keep 5 GB free: the system starts struggling when the disk is nearly full
         die(f"not enough disk space: {m['name']} needs {gb(need)}, {gb(free)} free (keep at least 5 GB free)")
-    if not (LOCAL_HOME / ".tm-excluded").exists():  # re-downloadable, keep them out of Time Machine
+    if IS_MAC and not (LOCAL_HOME / ".tm-excluded").exists():  # re-downloadable, keep them out of Time Machine
         if subprocess.run(["tmutil", "addexclusion", str(LOCAL_MODELS)], capture_output=True).returncode == 0:
             (LOCAL_HOME / ".tm-excluded").touch()
-    total = sum(j[3] or 0 for j in todo) + (cat["engine"].get("size", 0) if need_engine else 0)
+    total = sum(j[3] or 0 for j in todo) + (eng.get("size", 0) if need_engine else 0)
     progress = Progress(total, a.json)
     progress.event(event="start", id=m["id"], name=m["name"], total=total)
     if not a.json:
         log(f"{m['name']}: {gb(total)} to download" if total else f"{m['name']}: files already here")
     if need_engine:
-        install_engine(cat, progress)
+        install_engine(cat, progress, cfg)
     for label, url, dest, size, sha, auth in todo:
         fetch_file(url, dest, size, sha, progress, label, auth=auth)
     progress.end()
@@ -1851,7 +2214,7 @@ def local_size(a, recipe, refs):
 
 
 def run_local(a, cfg, spec, task):
-    """Generate on this Mac with stable-diffusion.cpp."""
+    """Generate on this Mac or PC with stable-diffusion.cpp."""
     prompt = read_prompt(a)
     refs = check_refs(a.image)
     note_unsupported(a, spec["label"], ["mask", "compression", "moderation", "quality"])
@@ -1859,7 +2222,7 @@ def run_local(a, cfg, spec, task):
         raise Unavailable("local models can't make transparent images")
     ready, why = local_readiness()
     if not ready:
-        raise Unavailable(f"{why}. Download one in ImageGenKit › Settings › Providers › On this Mac, "
+        raise Unavailable(f"{why}. Download one in ImageGenKit › Settings › Providers › On {DEVICE}, "
                           "or: imagegenkit local-models add flux2-klein-4b")
     models = local_models()
     want = a.model or pref(cfg, spec, "model")
@@ -1906,18 +2269,23 @@ def run_local(a, cfg, spec, task):
         cmd += ["--model-args", rec["model_args"]]
     for r in refs:
         cmd += ["-r", str(r.resolve())]
-    log(f"{m['name']} on this Mac | {w}x{h} | {steps} steps | seed {seed}" + (f" | {len(refs)} ref(s)" if refs else ""))
+    log(f"{m['name']} on {DEVICE} | {w}x{h} | {steps} steps | seed {seed}" + (f" | {len(refs)} ref(s)" if refs else ""))
     if a.dry_run:
-        return log(" ".join(shlex.quote(c) for c in cmd))
+        return log(show_cmd(cmd))
     t0 = time.time()
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, cwd=work)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, cwd=work,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     def stop(signum, frame):  # the app quit or was cancelled: don't leave the engine running
         proc.terminate()
         sys.exit(128 + signum)
 
-    for sig in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, stop)
+    for name in ("SIGTERM", "SIGHUP", "SIGBREAK"):  # SIGHUP is Unix only, SIGBREAK Windows only
+        if hasattr(signal, name):
+            try:
+                signal.signal(getattr(signal, name), stop)
+            except (ValueError, OSError):  # not the main thread (the Windows app runs jobs in threads)
+                pass
     errors = []
 
     def read_errors():
@@ -1962,7 +2330,7 @@ def run_local(a, cfg, spec, task):
     if code != 0 or not files:
         shutil.rmtree(work, ignore_errors=True)
         detail = "; ".join(dict.fromkeys(errors))[-500:] or f"engine exit code {code}"
-        if code in (-9, 137) or re.search(r"out of memory|failed to allocate|insufficient memory", detail, re.I):
+        if code in (-9, 137, 3221225477, -1073741819) or re.search(r"out of memory|failed to allocate|insufficient memory|ErrorOutOfDeviceMemory", detail, re.I):
             die(f"{m['name']} ran out of memory. Close other apps, try a smaller size (--resolution 0.5K), or use a smaller model")
         die(f"{m['name']} couldn't make the image: {detail}")
     try:  # marked as AI-made (metadata and watermark) before anything is saved
@@ -1976,9 +2344,9 @@ def run_local(a, cfg, spec, task):
             "seed": seed, "n": a.n}, refs, images, None, t0, {"engine": local_registry().get("engine", {}).get("version")})
 
 
-# ---------- AI marking (images made on this Mac) ----------
+# ---------- AI marking (images made on this Mac or PC) ----------
 # EU AI Act Article 50(2): images from AI systems are marked as AI-made in a machine-readable way. Cloud providers mark
-# their own images; images made on this Mac get two marks from ImageGenKit:
+# their own images; images made locally get two marks from ImageGenKit:
 #  1. Metadata: XMP with IPTC DigitalSourceType "trainedAlgorithmicMedia" (read by Google, Meta, Adobe and others).
 #  2. An invisible watermark that survives re-saving as JPEG and resizing, which `imagegenkit detect` finds.
 # Watermark v1 (public, so anyone can check images): the picture is split into 4x4-pixel blocks; every block gets
@@ -2040,10 +2408,11 @@ def write_bmp(path, w, rows):
 
 
 def image_rows(path, work):
-    """Decode any image macOS can read to (width, height, BGR rows) through sips."""
+    """Decode any image the system can read to (width, height, BGR rows), through a 24-bit BMP."""
     bmp = Path(work) / f"{uuid.uuid4().hex[:8]}.bmp"
-    r = subprocess.run(["sips", "-s", "format", "bmp", str(path), "--out", str(bmp)], capture_output=True, text=True)
-    if r.returncode != 0 or not bmp.exists():
+    if not image_convert(path, bmp, "bmp"):
+        if bmp.exists():
+            bmp.unlink()
         raise ValueError(f"can't read {Path(path).name}")
     try:
         return read_bmp(bmp)
@@ -2110,7 +2479,7 @@ def watermark_score(w, h, rows):
 
 
 def xmp_packet(model):
-    tool = f"ImageGenKit {VERSION} ({model}, on this Mac)"
+    tool = f"ImageGenKit {VERSION} ({model}, on {DEVICE})"
     esc = lambda t: t.replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
     return ('<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>'
             '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
@@ -2152,9 +2521,7 @@ def mark_image(path, fmt, model, work):
     if fmt == "jpeg":
         bmp, jpg = Path(work) / "marked.bmp", Path(work) / "marked.jpg"
         write_bmp(bmp, w, rows)
-        r = subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "92", str(bmp), "--out", str(jpg)],
-                           capture_output=True)
-        if r.returncode != 0:
+        if not image_convert(bmp, jpg, "jpeg", quality=92):
             raise ValueError("couldn't save the JPEG")
         return jpeg_with_xmp(jpg.read_bytes(), xmp), "image/jpeg"
     return png_bytes(w, rows, xmp), "image/png"
@@ -2282,7 +2649,7 @@ def check_provider(spec, cfg):
         return local_check()
     if spec["type"] == "codex-cli":
         try:
-            out = subprocess.run([codex_bin(), "login", "status"], capture_output=True, text=True, timeout=60,
+            out = subprocess.run(launcher(codex_bin()) + ["login", "status"], capture_output=True, encoding="utf-8", errors="replace", timeout=60,
                                  stdin=subprocess.DEVNULL)
             text = (out.stdout + out.stderr).strip()
         except subprocess.SubprocessError:
@@ -2290,7 +2657,7 @@ def check_provider(spec, cfg):
         return ("ok", text.splitlines()[0]) if "logged in" in text.lower() else ("error", "not logged in (run: codex login)")
     if spec["type"] == "grok-build":
         try:
-            out = subprocess.run([grok_bin(), "models"], capture_output=True, text=True, timeout=60).stdout
+            out = subprocess.run(launcher(grok_bin()) + ["models"], capture_output=True, encoding="utf-8", errors="replace", timeout=60).stdout
         except subprocess.SubprocessError:
             out = ""
         m = re.search(r"logged in with ([^\s.]+(?:\.[a-z]+)?)", out)
@@ -2392,7 +2759,56 @@ def cmd_provider(a, cfg):
         if a.name in data.get("order", []):
             data["order"].remove(a.name)
         write_user_config(data)
-        print(f"Removed {a.name} (its Keychain key stays until: imagegenkit delete-key {a.name})")
+        print(f"Removed {a.name} (its {KEY_STORE} key stays until: imagegenkit delete-key {a.name})")
+
+
+def clipboard_read():
+    """Text on the clipboard (macOS pbpaste, Windows clipboard API)."""
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            from ctypes import wintypes
+            u32, k32 = ctypes.WinDLL("user32"), ctypes.WinDLL("kernel32")
+            u32.GetClipboardData.restype = wintypes.HANDLE
+            k32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+            k32.GlobalLock.restype = ctypes.c_void_p
+            k32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+            if not u32.OpenClipboard(None):
+                return ""
+            try:
+                h = u32.GetClipboardData(13)  # CF_UNICODETEXT
+                if not h:
+                    return ""
+                ptr = k32.GlobalLock(h)
+                try:
+                    return ctypes.wstring_at(ptr) if ptr else ""
+                finally:
+                    k32.GlobalUnlock(h)
+            finally:
+                u32.CloseClipboard()
+        except (OSError, AttributeError):
+            return ""
+    try:
+        return subprocess.run(["pbpaste"], capture_output=True, encoding="utf-8", errors="replace").stdout
+    except OSError:
+        return ""
+
+
+def clipboard_clear():
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            u32 = ctypes.WinDLL("user32")
+            if u32.OpenClipboard(None):
+                u32.EmptyClipboard()
+                u32.CloseClipboard()
+        except (OSError, AttributeError):
+            pass
+        return
+    try:
+        subprocess.run(["pbcopy"], input="", encoding="utf-8", errors="replace")
+    except OSError:
+        pass
 
 
 def cmd_set_key(a, cfg):
@@ -2407,7 +2823,7 @@ def cmd_set_key(a, cfg):
     if spec["type"] in SUBSCRIPTION_TYPES:
         die(f"{spec['label']} has no key. Log in with: {'grok login' if spec['type'] == 'grok-build' else 'codex login'}")
     if a.clipboard:
-        key = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout.strip()
+        key = clipboard_read().strip()
         if not key:
             die("clipboard is empty")
     elif a.stdin or not sys.stdin.isatty():
@@ -2418,12 +2834,12 @@ def cmd_set_key(a, cfg):
         die("that does not look like an API key")
     service = keychain_service(a.provider)
     if not keychain_store(service, key, f"ImageGenKit {spec['label']} API key") or keychain_read(service) != key:
-        die("could not store the key in the Keychain")
+        die(f"could not store the key in the {KEY_STORE}")
     if spec["type"] != "token":
         enable_provider(a.provider)
     if a.clipboard:
-        subprocess.run(["pbcopy"], input="", text=True)
-    print(f"Saved in Keychain as '{service}'.")
+        clipboard_clear()
+    print(f"Saved in {KEY_STORE} as '{service}'.")
     if spec["type"] == "token":
         return
     if spec.get("env") and os.environ.get(spec["env"]):
@@ -2433,9 +2849,7 @@ def cmd_set_key(a, cfg):
 
 
 def cmd_delete_key(a, cfg):
-    r = subprocess.run(["security", "delete-generic-password", "-s", keychain_service(a.provider)],
-                       capture_output=True, text=True)
-    print("Deleted." if r.returncode == 0 else f"No key stored for {a.provider}.")
+    print("Deleted." if keychain_delete(keychain_service(a.provider)) else f"No key stored for {a.provider}.")
 
 
 def cmd_models(a, cfg):
@@ -2474,6 +2888,20 @@ def cmd_usage(a, cfg):
         print("limits warn only (stop_paid is off)")
 
 
+# The ImageGenKit app for Windows (and Linux): a local web app served by imagegenkit_app.py next to this file.
+APP_FILES = ["imagegenkit_app.py", "app/index.html", "app/app.js", "app/app.css", "app/icon.svg", "app/icon.ico"]
+
+
+def cmd_app(a, cfg):
+    """Open the ImageGenKit app (a window in Edge/Chrome app mode, or a browser tab)."""
+    here = Path(os.path.realpath(__file__)).parent
+    if not (here / "imagegenkit_app.py").exists():
+        die(f"the app isn't installed next to {here / 'imagegenkit.py'} (reinstall with install.ps1)")
+    sys.path.insert(0, str(here))
+    import imagegenkit_app
+    imagegenkit_app.main(port=a.port, open_window=not a.no_window, cli_path=str(here / "imagegenkit.py"))
+
+
 def version_tuple(v):
     return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", str(v).lstrip("vV")))
 
@@ -2501,15 +2929,28 @@ def self_update(force_check=True):
     if version_tuple(remote) <= version_tuple(VERSION):
         return f"up to date ({VERSION})"
     compile(code, "imagegenkit.py", "exec")  # never install something that doesn't parse
+    app_files = {}
+    if (me.parent / "imagegenkit_app.py").exists():  # the Windows app, installed next to the command
+        for rel in APP_FILES:
+            app_files[rel] = fetch(f"cli/{rel}")
+        compile(app_files["imagegenkit_app.py"], "imagegenkit_app.py", "exec")
     tmp = me.with_name(me.name + ".new")
     tmp.write_bytes(code)
     tmp.chmod(0o755)
     tmp.replace(me)
+    for rel, data in app_files.items():
+        target = me.parent / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        part = target.with_name(target.name + ".new")
+        part.write_bytes(data)
+        part.replace(target)
     try:
         skill = fetch("skill/SKILL.md")
+        if (me.parent / "SKILL.md").exists():  # the copy the Windows app installs from
+            (me.parent / "SKILL.md").write_bytes(skill)
         for home in (Path.home() / ".claude", Path.home() / ".codex"):
             target = home / "skills" / "imagegenkit" / "SKILL.md"
-            if target.exists() and "managed-by: ImageGenKit" in target.read_text(errors="ignore"):
+            if target.exists() and "managed-by: ImageGenKit" in target.read_text(encoding="utf-8", errors="ignore"):
                 target.write_bytes(skill)
     except (OSError, urllib.error.URLError):
         pass
@@ -2527,8 +2968,9 @@ def auto_update(cfg):
             return
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         stamp.touch()
+        detach = {"creationflags": 0x00000008 | 0x00000200 | 0x08000000} if IS_WINDOWS else {"start_new_session": True}
         subprocess.Popen([sys.executable, os.path.realpath(__file__), "_auto-update"], stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **detach)  # DETACHED, NEW_GROUP, NO_WINDOW
     except Exception:  # read-only config, no python: try again tomorrow
         pass
 
@@ -2666,12 +3108,12 @@ def main():
     p.add_argument("provider", nargs="?")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_check)
-    p = sub.add_parser("set-key", help="store a provider's API key in the macOS Keychain")
+    p = sub.add_parser("set-key", help=f"store a provider's API key in the {'macOS Keychain' if IS_MAC else 'Windows Credential Manager'}")
     p.add_argument("provider")
     p.add_argument("--clipboard", action="store_true", help="read the key from the clipboard, then clear it")
     p.add_argument("--stdin", action="store_true", help="read the key from stdin")
     p.set_defaults(fn=cmd_set_key)
-    p = sub.add_parser("delete-key", help="remove a provider's API key from the Keychain")
+    p = sub.add_parser("delete-key", help=f"remove a provider's API key from the {KEY_STORE}")
     p.add_argument("provider")
     p.set_defaults(fn=cmd_delete_key)
     p = sub.add_parser("provider", help="add or remove your own OpenAI-compatible provider")
@@ -2682,13 +3124,13 @@ def main():
     p.add_argument("--edit-model")
     p.add_argument("--label")
     p.set_defaults(fn=cmd_provider)
-    p = sub.add_parser("local-models", help="models that run on this Mac: list, search, add, remove")
+    p = sub.add_parser("local-models", help=f"models that run on {DEVICE}: list, search, add, remove")
     lsub = p.add_subparsers(dest="action", required=True, metavar="action")
     q = lsub.add_parser("list", help="downloaded models and the ones you can add")
     q.add_argument("--json", action="store_true")
     q.add_argument("--refresh", action="store_true", help="reload the model list from GitHub")
     q.set_defaults(fn=cmd_local_list)
-    q = lsub.add_parser("search", help="search Hugging Face for models this Mac can run")
+    q = lsub.add_parser("search", help=f"search Hugging Face for models {DEVICE} can run")
     q.add_argument("query", nargs="?", default="")
     q.add_argument("--limit", type=int, default=30)
     q.add_argument("--json", action="store_true")
@@ -2703,7 +3145,7 @@ def main():
     q.add_argument("model")
     q.add_argument("--json", action="store_true")
     q.set_defaults(fn=cmd_local_remove)
-    p = sub.add_parser("detect", help="check images for the AI watermark and metadata of images made on this Mac")
+    p = sub.add_parser("detect", help=f"check images for the AI watermark and metadata of images made on {DEVICE}")
     p.add_argument("images", nargs="+")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_detect)
@@ -2720,6 +3162,10 @@ def main():
     p.set_defaults(fn=cmd_usage)
     p = sub.add_parser("update", help="update imagegenkit (and its skills) from the latest GitHub release")
     p.set_defaults(fn=cmd_update)
+    p = sub.add_parser("app", help="open the ImageGenKit app (gallery, generate, usage, settings)")
+    p.add_argument("--port", type=int, default=0, help="serve on this port (default: a free one)")
+    p.add_argument("--no-window", action="store_true", help="only start the server and print its address")
+    p.set_defaults(fn=cmd_app)
     p = sub.add_parser("version", help="print the version")
     p.set_defaults(fn=lambda a, c: print(VERSION))
 

@@ -1,10 +1,27 @@
 # Install ImageGenKit (instructions for AI agents)
 
-You are helping a user install ImageGenKit on their Mac. Follow these steps in order. Keep the user informed in short sentences.
+You are helping a user install ImageGenKit on their Mac or Windows PC. Follow these steps in order. Keep the user informed in short sentences.
 
 **Never ask the user to paste an API key into the chat, and never print or store a key yourself.** Keys are entered in the ImageGenKit app (Settings › Providers) or by the user running `imagegenkit set-key <provider>` in their own Terminal.
 
-## 1. Install the app
+## On Windows
+
+Use these steps instead of the macOS ones below. Run them in PowerShell.
+
+1. Check Python: `py -3 --version` (or `python --version`) must print 3.9 or newer. If not, ask the user before running
+   `winget install Python.Python.3.13`.
+2. Install the command, the app and the skills:
+
+   ```powershell
+   irm https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/install.ps1 | iex
+   ```
+
+   It adds `%USERPROFILE%\.local\bin` to the user's PATH; new terminals pick it up.
+3. Ask the user to open **ImageGenKit** from the Start menu (or run `imagegenkit app`) and connect a provider in
+   Settings › Providers. Keys go into the Windows Credential Manager there, never into the chat.
+4. Check with `imagegenkit providers` and try `imagegenkit draft "a cozy reading nook, warm light" -o "$HOME\Desktop\nook.jpg"`.
+
+## 1. Install the app (macOS)
 
 ```bash
 cd "$(mktemp -d)"

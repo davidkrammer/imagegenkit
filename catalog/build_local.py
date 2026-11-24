@@ -2,7 +2,8 @@
 
     python3 catalog/build_local.py catalog/local.json
 
-Edit ENGINE (a stable-diffusion.cpp release: macOS arm64 zip, its sha256 and size), COMPONENTS (shared text encoders
+Edit ENGINE (a stable-diffusion.cpp release: macOS arm64 zip, its sha256 and size), ENGINES (the Windows zips of
+the same release), COMPONENTS (shared text encoders
 and VAEs), RECIPES (model families, from the engine's examples/server/recipes at that release) or MODELS (the examples
 in the app's dropdown), then run it. Apps and the CLI pick up the new file from GitHub within a day.
 """
@@ -37,6 +38,16 @@ ENGINE = {
     "binary": "sd-cli",
     "license": "MIT",
     "homepage": "https://github.com/leejet/stable-diffusion.cpp",
+}
+
+# Windows builds of the same release (x64): Vulkan runs on any recent NVIDIA, AMD or Intel GPU; CPU is the fallback
+# (config local_backend: cpu). The CLI picks engines["windows-x64-<backend>"] on Windows.
+_REL = "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1106-532d2c1/"
+ENGINES = {
+    "windows-x64-vulkan": dict(ENGINE, backend="vulkan", binary="sd-cli.exe", url=_REL + "sd-master-532d2c1-bin-win-vulkan-x64.zip",
+                               sha256="3e66222c87ca27074e1fd8ce79706eef17a8aaf39949906aa1bee7e060f22ecc", size=30312081),
+    "windows-x64-cpu": dict(ENGINE, backend="cpu", binary="sd-cli.exe", url=_REL + "sd-master-532d2c1-bin-win-cpu-x64.zip",
+                            sha256="abef332cfca7861cc567910e79bedb70bfb2920bb4eedac97fcbb6db477f1596", size=18358541),
 }
 
 COMPONENTS = {
@@ -149,7 +160,7 @@ for m in MODELS:
     m["edit"] = r["edit"]
     m["download"] = m["file"]["size"] + sum(COMPONENTS[c]["size"] for c in r["slots"].values())
 
-catalog = {"version": 1, "updated": dt.datetime.now().isoformat(timespec="minutes"), "engine": ENGINE, "components": COMPONENTS,
+catalog = {"version": 1, "updated": dt.datetime.now().isoformat(timespec="minutes"), "engine": ENGINE, "engines": ENGINES, "components": COMPONENTS,
            "recipes": RECIPES, "models": MODELS, "block": BLOCK}
 with open(OUT, "w") as fh:
     json.dump(catalog, fh, indent=1)

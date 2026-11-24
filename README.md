@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/davidkrammer/imagegenkit/releases/latest"><b>Download for Mac</b></a> ·
+  <a href="#windows">Windows</a> ·
   <a href="#install-with-your-ai-agent">Install with your AI agent</a> ·
   <a href="#command-line">Command line</a> ·
   <a href="#support">Donate</a>
@@ -48,6 +49,47 @@
 |---|---|
 | ![Menu bar](docs/screenshots/menubar.jpg) | ![Monthly limits](docs/screenshots/limits.jpg) |
 
+## Windows
+
+### Install
+
+In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/install.ps1 | iex
+```
+
+It needs Python 3.9+ (`winget install Python.Python.3.13` if you don't have it) and nothing else. The installer puts
+`imagegenkit` in `%USERPROFILE%\.local\bin` (and on your PATH), adds **ImageGenKit** to the Start menu, and installs the
+skill for Claude Code and Codex if they're on this PC. From a checkout: `powershell -ExecutionPolicy Bypass -File install.ps1`.
+
+### The app
+
+Open **ImageGenKit** from the Start menu, or run `imagegenkit app`. It opens in its own window (Edge or Chrome app mode)
+and has the same parts as the Mac app: Overview with spend and activity, Gallery, History, Generate (with reference
+images), and Settings for providers, task routing, defaults, monthly limits, local models and AI agents. It's a small
+local web app served by `cli/imagegenkit_app.py` on 127.0.0.1 only, with a per-launch token; it quits by itself a minute
+after its window is closed.
+
+### What's different on Windows
+
+| | macOS | Windows |
+|---|---|---|
+| API keys | Keychain | Windows Credential Manager (`imagegenkit-<provider>` generic credentials) |
+| Images (convert, resize, thumbnails) | `sips` | Pillow if installed, else Windows Imaging Component (built in) |
+| On this Mac / PC | Metal build of stable-diffusion.cpp, Apple silicon | Vulkan build (any recent NVIDIA, AMD or Intel GPU) or CPU build: `imagegenkit config set local_backend cpu` |
+| Grok subscription | `curl -fsSL https://x.ai/cli/install.sh \| bash` | `irm https://x.ai/cli/install.ps1 \| iex` (the app can open it in a terminal) |
+| Codex subscription | `npm install -g @openai/codex` | same (Node.js needed) |
+| App | native SwiftUI menu bar app | local web app in an app window, Start menu shortcut |
+
+Everything else is shared: `~/.config/imagegenkit/config.json`, the log, the provider list and the agent skill.
+
+### Tests
+
+```powershell
+py -3 -m unittest discover -s cli
+```
+
 ## Install
 
 ### Download
@@ -70,7 +112,7 @@ curl -fsSL https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/insta
 imagegenkit set-key openai     # or log in to a subscription: grok login / codex login
 ```
 
-Requires macOS and Python 3.9+ (`xcode-select --install` provides it).
+Requires macOS and Python 3.9+ (`xcode-select --install` provides it). On Windows, see [Windows](#windows).
 
 ## Command line
 

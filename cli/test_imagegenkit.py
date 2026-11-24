@@ -1,6 +1,7 @@
 """Unit tests for the imagegenkit CLI (stdlib only, no real providers).
 
-    /usr/bin/python3 -m unittest discover -s cli
+    python3 -m unittest discover -s cli        (macOS, Linux)
+    py -3 -m unittest discover -s cli          (Windows)
 """
 import atexit
 import base64
@@ -19,6 +20,7 @@ from pathlib import Path
 HOME = tempfile.mkdtemp(prefix="igk-test-")
 atexit.register(shutil.rmtree, HOME, True)
 os.environ["HOME"] = HOME  # the module reads ~/.config/imagegenkit at import
+os.environ["USERPROFILE"] = HOME  # Path.home() on Windows
 os.environ["IMAGEGENKIT_NO_UPDATE"] = "1"
 _spec = importlib.util.spec_from_file_location("imagegenkit", Path(__file__).with_name("imagegenkit.py"))
 igk = importlib.util.module_from_spec(_spec)
@@ -100,7 +102,7 @@ class CLITests(unittest.TestCase):
     def test_catalog_providers_without_the_app(self):
         igk.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         repo_catalog = Path(__file__).resolve().parent.parent / "catalog" / "providers.json"
-        (igk.CONFIG_DIR / "catalog.json").write_text(repo_catalog.read_text())
+        (igk.CONFIG_DIR / "catalog.json").write_text(repo_catalog.read_text(encoding="utf-8"), encoding="utf-8")
         try:
             provs = igk.all_providers(igk.load_config())
             for name in ("openrouter", "recraft", "together", "fal"):
@@ -113,6 +115,183 @@ class CLITests(unittest.TestCase):
     def test_version_compare_never_downgrades(self):
         self.assertLess(igk.version_tuple("v1.0.0"), igk.version_tuple("1.0.5"))
         self.assertLess(igk.version_tuple("1.0.9"), igk.version_tuple("1.0.10"))
+        self.assertLess(igk.version_tuple("1.1.0"), igk.version_tuple("1.1.0-win.1"))
+        self.assertLess(igk.version_tuple("1.1.0-win.1"), igk.version_tuple("1.1.0-win.2"))
+
+
+class PortableTests(unittest.TestCase):
+    """Pieces that replace macOS tools: image headers, conversion, launching npm shims, Codex paths."""
+
+    def test_reads_image_headers(self):
+        work = Path(HOME) / "hdr"
+        work.mkdir(exist_ok=True)
+        png = work / "a.png"
+        png.write_bytes(PNG)
+        self.assertEqual(igk.image_info(png), (1, 1, False))
+        bmp = work / "a.bmp"
+        igk.write_bmp(bmp, 30, [b"\x10\x20\x30" * 30] * 20)
+        self.assertEqual(igk.image_info(bmp), (30, 20, False))
+        self.assertEqual(igk.image_aspect(bmp), "30:20")
+        jpg = work / "a.jpg"
+        if igk.image_convert(bmp, jpg, "jpeg"):  # needs Pillow, sips or Windows
+            self.assertEqual(igk.image_info(jpg)[:2], (30, 20))
+            small = work / "s.png"
+            self.assertTrue(igk.image_convert(jpg, small, "png", max_px=15))
+            self.assertEqual(igk.image_info(small)[:2], (15, 10))
+        vp8x = b"RIFF\0\0\0\0WEBPVP8X" + b"\0" * 4 + b"\x10\0\0\0" + (99).to_bytes(3, "little") + (49).to_bytes(3, "little")
+        (work / "a.webp").write_bytes(vp8x)
+        self.assertEqual(igk.image_info(work / "a.webp"), (100, 50, True))
+        (work / "bad.png").write_bytes(b"not an image")
+        self.assertIsNone(igk.image_info(work / "bad.png"))
+
+    def test_npm_shims_run_their_node_script(self):
+        if not igk.IS_WINDOWS:
+            self.assertEqual(igk.launcher("/usr/local/bin/codex"), ["/usr/local/bin/codex"])
+            return
+        npm = Path(HOME) / "npm"
+        (npm / "node_modules" / "@openai" / "codex" / "bin").mkdir(parents=True, exist_ok=True)
+        script = npm / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+        script.write_text("")
+        shim = npm / "codex.cmd"
+        shim.write_text('@ECHO off\r\nGOTO start\r\n:start\r\nSETLOCAL\r\nSET dp0=%~dp0\r\n'
+                        'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n')
+        (npm / "node.exe").write_text("")
+        real_which = igk.shutil.which
+        igk.shutil.which = lambda name: None
+        try:
+            self.assertEqual(igk.launcher(str(shim)), [str(npm / "node.exe"), str(script)])
+        finally:
+            igk.shutil.which = real_which
+        self.assertEqual(igk.launcher(r"C:\x\codex.exe"), [r"C:\x\codex.exe"])
+
+    def test_finds_codex_images_in_windows_paths(self):
+        line = json.dumps({"type": "item.completed", "item": {"text": r"saved C:\Users\me\.codex\generated_images\t1\img_1.png"}})
+        import re
+        found = [p.replace("\\\\", "\\") for p in re.findall(r'[^"\s]*generated_images(?:/|\\\\|\\)[^"\s]+?\.(?:png|jpe?g|webp)', line)]
+        self.assertEqual(found, [r"C:\Users\me\.codex\generated_images\t1\img_1.png"])
+
+    def test_key_store_round_trip(self):
+        if not igk.IS_WINDOWS:
+            self.skipTest("uses the Windows Credential Manager")
+        service = f"imagegenkit-unittest-{os.getpid()}"
+        try:
+            self.assertTrue(igk.keychain_store(service, "sk-unit-✓-123", "unit test"))
+            self.assertEqual(igk.keychain_read(service), "sk-unit-✓-123")
+        finally:
+            igk.keychain_delete(service)
+        self.assertIsNone(igk.keychain_read(service))
+        self.assertFalse(igk.keychain_delete(service))
+
+    def test_engine_for_this_system(self):
+        cat = igk.local_catalog()
+        if igk.IS_WINDOWS:
+            eng = igk.engine_spec(cat, {})
+            self.assertEqual((eng["binary"], eng["backend"]), ("sd-cli.exe", "vulkan"))
+            self.assertTrue(eng["url"].endswith("win-vulkan-x64.zip"))
+            self.assertEqual(igk.engine_spec(cat, {"local_backend": "cpu"})["backend"], "cpu")
+            self.assertNotEqual(igk.engine_spec(cat, {})["dir"], igk.engine_spec(cat, {"local_backend": "cpu"})["dir"])
+        for e in cat.get("engines", {}).values():
+            self.assertEqual(len(e["sha256"]), 64)
+            self.assertTrue(e["url"].startswith("https://github.com/leejet/stable-diffusion.cpp/"))
+
+    def test_unpacks_zips_safely(self):
+        import zipfile
+        work = Path(HOME) / "zip"
+        work.mkdir(exist_ok=True)
+        good = work / "good.zip"
+        with zipfile.ZipFile(good, "w") as z:
+            z.writestr("bin/sd-cli.exe", b"x")
+        if not igk.IS_MAC:
+            self.assertTrue(igk.unpack_zip(good, work / "out"))
+            self.assertTrue((work / "out" / "bin" / "sd-cli.exe").is_file())
+            bad = work / "bad.zip"
+            with zipfile.ZipFile(bad, "w") as z:
+                z.writestr("../escape.txt", b"x")
+            self.assertFalse(igk.unpack_zip(bad, work / "out2"))
+            self.assertFalse((work / "escape.txt").exists())
+
+
+class AppServerTests(unittest.TestCase):
+    """The Windows app's local server: token and Host checks, and what it lets the page read."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(Path(__file__).parent))
+        import imagegenkit_app
+        cls.app = imagegenkit_app
+        from http.server import ThreadingHTTPServer
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), imagegenkit_app.Handler)
+        cls.base = f"http://127.0.0.1:{cls.server.server_port}"
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def get(self, path, token=True, host=None):
+        import urllib.request
+        import urllib.error
+        req = urllib.request.Request(self.base + path)
+        if token:
+            req.add_header("X-IGK-Token", self.app.TOKEN)
+        if host:
+            req.add_header("Host", host)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    def test_needs_the_token_and_a_local_host(self):
+        self.assertEqual(self.get("/api/ping", token=False)[0], 403)
+        self.assertEqual(self.get("/api/ping", host="evil.example")[0], 403)
+        self.assertEqual(self.get("/?t=wrong", token=False)[0], 403)
+        status, body = self.get("/api/ping")
+        self.assertEqual((status, json.loads(body)["ok"]), (200, True))
+        status, body = self.get(f"/?t={self.app.TOKEN}", token=False)
+        self.assertEqual(status, 200)
+        self.assertIn(self.app.TOKEN.encode(), body)
+
+    def test_serves_only_logged_images(self):
+        secret = Path(HOME) / "secret.png"
+        secret.write_bytes(PNG)
+        q = urllib_quote(str(secret))
+        self.assertEqual(self.get(f"/file?t={self.app.TOKEN}&path={q}", token=False)[0], 404)
+        igk.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        igk.LOG_FILE.write_text(json.dumps({"ts": "2026-01-01T00:00:00", "provider": "openai", "type": "openai",
+                                            "outputs": [str(secret)], "prompt": "p"}) + "\n", encoding="utf-8")
+        try:
+            status, body = self.get(f"/file?t={self.app.TOKEN}&path={q}", token=False)
+            self.assertEqual((status, body), (200, PNG))
+            status, body = self.get("/api/log")
+            self.assertEqual(json.loads(body)[0]["outputs"], [str(secret)])
+            text = Path(HOME) / "notes.txt"
+            text.write_text("x")
+            self.assertEqual(self.get(f"/file?t={self.app.TOKEN}&path={urllib_quote(str(text))}", token=False)[0], 404)
+        finally:
+            igk.LOG_FILE.unlink()
+
+    def test_generate_requests_are_checked(self):
+        with self.assertRaises(self.app.ApiFailure):
+            self.app.generate_args({"target": "draft", "prompt": "  "})
+        with self.assertRaises(self.app.ApiFailure):
+            self.app.generate_args({"target": "rm -rf", "prompt": "x"})
+        with self.assertRaises(self.app.ApiFailure):  # a reference must be an image the app knows
+            self.app.generate_args({"target": "edit", "prompt": "x", "refs": [str(Path(HOME) / "secret.png")]})
+        args, target, prompt = self.app.generate_args({"target": "final", "prompt": "a mug", "aspect": "4:5", "n": 20, "quality": "high"})
+        self.assertEqual((target, prompt), ("final", "a mug"))
+        self.assertEqual(args[:2], ["final", "-"])  # the prompt goes on stdin, never on the command line
+        self.assertIn("--aspect", args)
+        self.assertEqual(args[args.index("-n") + 1], "8")  # capped
+        args, _, prompt = self.app.generate_args({"target": "draft", "prompt": "-o C:\\x.png --extra a=b"})
+        self.assertEqual((args, prompt), (["draft", "-"], "-o C:\\x.png --extra a=b"))  # a prompt can't add options
+        with self.assertRaises(self.app.ApiFailure):  # nor can an option value
+            self.app.generate_args({"target": "draft", "prompt": "x", "model": "--extra"})
+
+
+def urllib_quote(s):
+    import urllib.parse
+    return urllib.parse.quote(s)
 
 
 class FileHandler(BaseHTTPRequestHandler):
@@ -249,8 +428,7 @@ class LocalModelTests(unittest.TestCase):
         self.assertTrue(jpg.startswith(b"\xff\xd8\xff\xe1") and igk.DIGITAL_SOURCE.encode() in jpg)
         import subprocess
         small = work / "small.jpg"
-        subprocess.run(["sips", "-Z", "256", "-s", "format", "jpeg", "-s", "formatOptions", "75", str(marked), "--out", str(small)],
-                       capture_output=True, check=True)
+        self.assertTrue(igk.image_convert(marked, small, "jpeg", quality=75, max_px=256))
         self.assertGreater(igk.watermark_score(*igk.image_rows(small, work)), igk.MARK_THRESHOLD)
 
     def test_sizes_follow_the_family_grid(self):
@@ -312,8 +490,8 @@ class LocalModelTests(unittest.TestCase):
 
     def test_generates_with_the_engine(self):
         """A fake sd-cli: checks the flags, prints progress like the real one and writes the image."""
-        engine = Path(HOME) / "fake-sd-cli"
-        engine.write_text("#!/usr/bin/env python3\n"
+        script = Path(HOME) / "fake-sd-cli.py"
+        script.write_text("#!/usr/bin/env python3\n"
                           "import sys, base64\n"
                           "a = sys.argv\n"
                           "assert '--diffusion-model' in a and '--llm' in a and '--vae' in a, a\n"
@@ -323,7 +501,12 @@ class LocalModelTests(unittest.TestCase):
                           "sys.stdout.write('\\n[I] decoding 1 latents\\n')\n"
                           "out = a[a.index('-o') + 1].replace('%02d', '00')\n"
                           f"open(out, 'wb').write(base64.b64decode('{base64.b64encode(PNG).decode()}'))\n")
-        engine.chmod(0o755)
+        script.chmod(0o755)
+        if igk.IS_WINDOWS:  # a .cmd launcher, started the way the real sd-cli.exe is
+            engine = Path(HOME) / "fake-sd-cli.cmd"
+            engine.write_text(f'@"{sys.executable}" "{script}" %*\n')
+        else:
+            engine = script
         models = igk.LOCAL_MODELS
         files = {"diffusion_model": "t/d.gguf", "llm": "t/l.gguf", "vae": "t/v.safetensors"}
         for rel in files.values():
@@ -343,7 +526,7 @@ class LocalModelTests(unittest.TestCase):
             self.assertTrue(data.startswith(b"\x89PNG") and b"trainedAlgorithmicMedia" in data)  # marked as AI-made
             self.assertIn("step 4/4", err)
             self.assertIn("loading the model", err)
-            entry = json.loads(igk.LOG_FILE.read_text().splitlines()[-1])
+            entry = json.loads(igk.LOG_FILE.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual((entry["provider"], entry["type"], entry["params"]["size"]), ("local", "local", "1360x768"))
             self.assertEqual(igk.estimate_cost(entry, igk.load_config()), 0)
             with self.assertRaises(igk.Unavailable):  # transparency isn't something these models do

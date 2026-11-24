@@ -122,7 +122,6 @@ public sealed partial class MainWindow : Window
         {
             "gallery" => s.Loaded ? $"{Format.Count(s.Filtered(true).Sum(e => e.ImageCount))} images" : "",
             "history" => s.Loaded ? $"{Format.Count(s.Filtered(true).Count())} runs" : "",
-            "settings" => "Providers, local models, limits and AI agents",
             _ => "",
         };
         HeaderSub.Visibility = HeaderSub.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;

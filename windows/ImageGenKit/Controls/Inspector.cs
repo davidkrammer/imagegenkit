@@ -71,7 +71,7 @@ public static class Inspector
             Fact("", "Project", e.Project),
             Fact("", "Made by", e.Who));
         body.Children.Add(Ui.Card(facts, 16));
-        return new ScrollViewer { Content = body };
+        return new ScrollViewer { Content = body, HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     }
 
     static UIElement Fact(string glyph, string label, string value) =>

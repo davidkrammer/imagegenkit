@@ -64,7 +64,7 @@ public sealed partial class GalleryPage : Page, IRefreshable
 
     static BitmapImage? Bitmap(string path)
     {
-        try { return new BitmapImage(new Uri(path)) { DecodePixelWidth = 344, DecodePixelType = DecodePixelType.Physical }; }
+        try { return new BitmapImage(new Uri(path)) { DecodePixelWidth = 300, DecodePixelType = DecodePixelType.Physical }; }
         catch (Exception) { return null; }
     }
 

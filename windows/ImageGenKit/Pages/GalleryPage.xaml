@@ -14,7 +14,7 @@
                   ItemClick="Tiles_ItemClick">
             <GridView.ItemTemplate>
                 <DataTemplate x:DataType="local:GalleryTile">
-                    <Border Width="172" Height="172" CornerRadius="10" Style="{StaticResource TileStyle}"
+                    <Border Width="150" Height="150" CornerRadius="10" Style="{StaticResource TileStyle}"
                             ToolTipService.ToolTip="{x:Bind Tip}">
                         <Image Source="{x:Bind Image}" Stretch="UniformToFill" />
                     </Border>

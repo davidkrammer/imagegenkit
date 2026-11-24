@@ -9,7 +9,7 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ScrollViewer>
+        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="Body" Spacing="16" MaxWidth="1040" Padding="0,0,0,8" />
         </ScrollViewer>
         <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="18,12" MaxWidth="1040">

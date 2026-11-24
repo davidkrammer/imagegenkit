@@ -56,12 +56,23 @@ public sealed partial class SettingsPage : Page, IRefreshable
 
     // ---------- shared pieces ----------
 
-    void Heading(string title, string? lead = null, UIElement? trailing = null)
+    /// A sub-heading inside a section.
+    void Heading(string title)
     {
-        var text = Ui.Column(2, Ui.Text(title, 20, bold: true));
-        if (lead is not null) text.Children.Add(Ui.Muted(lead, 13));
-        var row = trailing is null ? (UIElement)text : Ui.Columns((text, Ui.Star()), (trailing, Ui.Auto));
-        ((FrameworkElement)row).Margin = new Thickness(0, 12, 0, 8);
+        var t = Ui.Text(title, 15, bold: true);
+        t.Margin = new Thickness(2, 18, 0, 6);
+        Body.Children.Add(t);
+    }
+
+    /// The line under the section tabs: what this section is for, and its main button.
+    void Intro(string lead, UIElement? trailing = null)
+    {
+        var text = Ui.Muted(lead, 13);
+        text.VerticalAlignment = VerticalAlignment.Center;
+        text.TextWrapping = TextWrapping.Wrap;
+        text.TextTrimming = TextTrimming.None;
+        var row = trailing is null ? (FrameworkElement)text : Ui.Columns((text, Ui.Star()), (trailing, Ui.Auto));
+        row.Margin = new Thickness(2, 10, 0, 10);
         Body.Children.Add(row);
     }
 
@@ -115,7 +126,7 @@ public sealed partial class SettingsPage : Page, IRefreshable
     {
         var s = Store.Shared;
         var add = Ui.LabelButton("", "Add Provider", async (_, _) => await AddProvider());
-        Heading("Providers", "Where your images come from. The top one is used first.", add);
+        Intro("Where your images come from. The top one is used first.", add);
         var enabled = s.Enabled;
         if (enabled.Count == 0)
         {
@@ -304,7 +315,7 @@ public sealed partial class SettingsPage : Page, IRefreshable
     void UseFor()
     {
         var s = Store.Shared;
-        Heading("Use for", "Which provider makes what. If it isn't ready, the next one in your list is used.");
+        Intro("Which provider makes what. If it isn't ready, the next one in your list is used.");
         var tasks = s.State.Obj("tasks");
         var info = s.State.Obj("task_info");
         var enabled = s.Enabled.Select(n => s.Providers.First(p => p.Name == n)).ToList();
@@ -339,7 +350,7 @@ public sealed partial class SettingsPage : Page, IRefreshable
 
     void Local()
     {
-        Heading("On this PC", "Free open models that run on your graphics card. Private, and they work offline.");
+        Intro("Free open models that run on your graphics card. Private, and they work offline.");
         if (local.ValueKind != JsonValueKind.Object)
         {
             Body.Children.Add(new ProgressRing { IsActive = true, Margin = new Thickness(0, 40, 0, 0) });
@@ -518,7 +529,7 @@ public sealed partial class SettingsPage : Page, IRefreshable
     {
         var limits = Store.Shared.State.Obj("limits");
         var usage = Store.Shared.State.Obj("usage");
-        Heading("Monthly limits", $"This month: {Format.Money(usage.Num("cost"))} and {Format.Count((int)usage.Num("images"))} images. You get a notice at 80% and 100%.");
+        Intro($"This month: {Format.Money(usage.Num("cost"))} and {Format.Count((int)usage.Num("images"))} images. You get a notice at 80% and 100%.");
         double cost = limits.Num("monthly_cost"), images = limits.Num("monthly_images");
         bool stop = limits.Bool("stop_paid");
 
@@ -553,7 +564,7 @@ public sealed partial class SettingsPage : Page, IRefreshable
 
     void Agents()
     {
-        Heading("Let your AI agents make images", "Claude Code and Codex use the imagegenkit command with your settings and limits.");
+        Intro("Claude Code and Codex make images with the imagegenkit command, using your settings and limits.");
         bool installed = CommandInstaller.Installed;
         var cmdButton = new Button
         {

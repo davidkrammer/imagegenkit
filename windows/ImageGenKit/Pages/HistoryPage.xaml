@@ -24,22 +24,25 @@
             <ColumnDefinition x:Name="InspectorColumn" Width="0" />
         </Grid.ColumnDefinitions>
         <Grid Margin="36,0,20,24">
+            <Border Style="{StaticResource CardStyle}" Padding="0" />
+            <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+            <Grid MinWidth="880">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-            <Border Style="{StaticResource CardStyle}" Grid.RowSpan="2" Padding="0" />
             <Grid Padding="16,12,16,10" ColumnSpacing="12" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeBrush}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="44" />
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="130" />
-                    <ColumnDefinition Width="84" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="56" />
-                    <ColumnDefinition Width="96" />
-                    <ColumnDefinition Width="72" />
-                    <ColumnDefinition Width="60" />
+                    <ColumnDefinition Width="128" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="78" />
+                    <ColumnDefinition Width="*" MinWidth="120" />
+                    <ColumnDefinition Width="48" />
+                    <ColumnDefinition Width="88" />
+                    <ColumnDefinition Width="62" />
+                    <ColumnDefinition Width="52" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="1" Text="Date" Style="{StaticResource HeadText}" />
                 <TextBlock Grid.Column="2" Text="Provider" Style="{StaticResource HeadText}" />
@@ -56,14 +59,14 @@
                         <Grid Height="56" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="44" />
-                                <ColumnDefinition Width="150" />
-                                <ColumnDefinition Width="130" />
-                                <ColumnDefinition Width="84" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="56" />
-                                <ColumnDefinition Width="96" />
-                                <ColumnDefinition Width="72" />
-                                <ColumnDefinition Width="60" />
+                                <ColumnDefinition Width="128" />
+                                <ColumnDefinition Width="140" />
+                                <ColumnDefinition Width="78" />
+                                <ColumnDefinition Width="*" MinWidth="120" />
+                                <ColumnDefinition Width="48" />
+                                <ColumnDefinition Width="88" />
+                                <ColumnDefinition Width="62" />
+                                <ColumnDefinition Width="52" />
                             </Grid.ColumnDefinitions>
                             <Border Width="40" Height="40" CornerRadius="8" Style="{StaticResource TileStyle}" VerticalAlignment="Center">
                                 <Image Source="{x:Bind Thumb}" Stretch="UniformToFill" />
@@ -86,7 +89,9 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-            <TextBlock x:Name="Empty" Grid.Row="1" Text="Nothing here yet." Visibility="Collapsed" HorizontalAlignment="Center"
+            </Grid>
+            </ScrollViewer>
+            <TextBlock x:Name="Empty" Text="Nothing here yet." Visibility="Collapsed" HorizontalAlignment="Center"
                        VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
         </Grid>
         <Border x:Name="InspectorHost" Grid.Column="1" BorderThickness="1,0,0,0"

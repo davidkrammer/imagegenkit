@@ -79,8 +79,9 @@ public sealed partial class GeneratePage : Page, IRefreshable
         var p = Provider;
         if (p is null) Body.Children.Add(NoProvider());
         else Body.Children.Add(OptionsCard(p));
-        if (results.Count > 0) Body.Children.Add(ResultsCard());
+        Body.Children.Add(results.Count > 0 ? ResultsCard() : Stage());
         RunButton.IsEnabled = p is not null;
+        if (StatusText.Text.Length == 0) SetStatus(p is null ? "" : "Ctrl+Enter to generate");
     }
 
     // ---------- prompt & references ----------
@@ -230,7 +231,11 @@ public sealed partial class GeneratePage : Page, IRefreshable
         var aspectBox = new ComboBox { MinWidth = 140 };
         foreach (var a in aspects) aspectBox.Items.Add(a);
         aspectBox.SelectedItem = aspect;
-        aspectBox.SelectionChanged += (_, _) => aspect = aspectBox.SelectedItem as string ?? GenerateSpec.Auto;
+        aspectBox.SelectionChanged += (_, _) =>
+        {
+            aspect = aspectBox.SelectedItem as string ?? GenerateSpec.Auto;
+            if (results.Count == 0 && Body.Children.Count > 0) Body.Children[^1] = Stage();
+        };
         Add("Aspect", aspectBox);
 
         var sizes = GenerateSpec.Sizes(p.Type);
@@ -378,6 +383,34 @@ public sealed partial class GeneratePage : Page, IRefreshable
     }
 
     // ---------- results ----------
+
+    /// Before the first image: a frame in the chosen aspect ratio where the results will appear.
+    UIElement Stage()
+    {
+        double w = 1, h = 1;
+        var parts = aspect.Split(':');
+        if (parts.Length == 2 && double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var a)
+            && double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var b) && a > 0 && b > 0)
+        { w = a; h = b; }
+        double height = 230, width = Math.Min(420, height * w / h);
+        if (width < height * w / h) height = width * h / w;
+        var inner = Ui.Column(10);
+        inner.HorizontalAlignment = HorizontalAlignment.Center;
+        inner.VerticalAlignment = VerticalAlignment.Center;
+        var spark = new PathIcon { Data = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), "M7,0 L8.4,5.6 L14,7 L8.4,8.4 L7,14 L5.6,8.4 L0,7 L5.6,5.6 Z"), Width = 14, Height = 14, Opacity = 0.45, HorizontalAlignment = HorizontalAlignment.Center };
+        inner.Children.Add(new Viewbox { Width = 28, Height = 28, Child = spark });
+        var hint = Ui.Faint(aspect == GenerateSpec.Auto ? "Your images appear here" : $"{aspect} · Your images appear here", 12);
+        hint.HorizontalAlignment = HorizontalAlignment.Center;
+        inner.Children.Add(hint);
+        var frame = new Border
+        {
+            Width = width, Height = height, CornerRadius = new CornerRadius(14), Style = Ui.GetStyle("TileStyle"),
+            BorderThickness = new Thickness(1.5), Child = inner, HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        var card = Ui.Card(frame);
+        card.Padding = new Thickness(20, 26, 20, 26);
+        return card;
+    }
 
     UIElement ResultsCard()
     {

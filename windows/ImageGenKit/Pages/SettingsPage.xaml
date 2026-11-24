@@ -17,8 +17,14 @@
             <SelectorBarItem Text="AI agents" Tag="agents" />
             <SelectorBarItem Text="General" Tag="general" />
         </SelectorBar>
-        <ScrollViewer Grid.Row="1">
-            <StackPanel x:Name="Body" Spacing="6" MaxWidth="1000" Padding="8,8,0,36" HorizontalAlignment="Stretch" />
+        <ScrollViewer Grid.Row="1" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MaxWidth="1000" />
+                    <ColumnDefinition Width="0" />
+                </Grid.ColumnDefinitions>
+                <StackPanel x:Name="Body" Spacing="6" Padding="8,4,0,36" />
+            </Grid>
         </ScrollViewer>
     </Grid>
 </Page>

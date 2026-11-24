@@ -26,6 +26,7 @@ public sealed partial class HistoryPage : Page, IRefreshable
 {
     LogItem? selected;
     int selectedIndex;
+    bool? compact;
 
     public HistoryPage()
     {
@@ -44,6 +45,18 @@ public sealed partial class HistoryPage : Page, IRefreshable
         Empty.Visibility = rows.Count == 0 && Store.Shared.Loaded ? Visibility.Visible : Visibility.Collapsed;
         if (selected is null && App.Options.SelectLatest && rows.Count > 0) selected = rows[0].Entry;
         ShowInspector();
+    }
+
+    /// Narrow table (the details panel is open, or the window is small): only date, provider, model and cost.
+    void TableHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        bool narrow = e.NewSize.Width < 900;
+        if (narrow == compact) return;
+        compact = narrow;
+        Table.MinWidth = narrow ? 540 : 880;
+        WideHead.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
+        CompactHead.Visibility = narrow ? Visibility.Visible : Visibility.Collapsed;
+        Rows.ItemTemplate = (DataTemplate)Resources[narrow ? "CompactRow" : "WideRow"];
     }
 
     static BitmapImage? Bitmap(string path)

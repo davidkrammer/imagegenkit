@@ -97,7 +97,7 @@ public static class Ui
         t.Style = GetStyle("MutedTextStyle");
         t.FontSize = 12;
         content.Children.Add(t);
-        return new Border { Style = GetStyle("PillStyle"), Child = content };
+        return new Border { Style = GetStyle("PillStyle"), Child = content, VerticalAlignment = VerticalAlignment.Center };
     }
 
     public static Ellipse Dot(Color c, double size = 8) =>

@@ -388,7 +388,7 @@ public sealed class WelcomeTour : Grid
         right.VerticalAlignment = VerticalAlignment.Center;
 
         var art = Ui.Columns((left, Ui.Star()), (right, Ui.Auto));
-        art.Padding = new Thickness(32, 0, 32, 0);
+        art.Padding = new Thickness(32, 0, 68, 0); // clear of the close button
         art.ColumnSpacing = 24;
 
         // The pointer that "Show me" moves around
@@ -496,8 +496,9 @@ public sealed class WelcomeTour : Grid
         await Task.Delay(1700);
         if (t != token) return;
 
-        string lower = prompt.ToLowerInvariant();
-        var sample = Samples.FirstOrDefault(s => s.Words.Any(lower.Contains));
+        // Whole words ("steaming" isn't "tea"), plurals count
+        var words = System.Text.RegularExpressions.Regex.Split(prompt.ToLowerInvariant(), "[^a-z]+");
+        var sample = Samples.FirstOrDefault(s => s.Words.Any(k => words.Any(w => w == k || w == k + "s" || w == k + "es")));
         if (sample.Name is null) sample = Samples[4];
         var (_, label, cost) = DemoProviders.First(p => p.Id == (string)provider.Tag);
         var picture = Ui.Picture(Sample(sample.Name), 336);

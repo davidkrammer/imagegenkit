@@ -43,6 +43,12 @@ jobs:
         shell: pwsh
         run: windows/tools/bundle.ps1 -Dir out/ImageGenKit
 
+      - name: ffmpeg for the tour video
+        if: github.event_name != 'release'
+        continue-on-error: true
+        shell: pwsh
+        run: if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg --no-progress -y | Out-Null }
+
       - name: Screenshots with demo data
         if: github.event_name != 'release'
         shell: powershell

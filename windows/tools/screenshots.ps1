@@ -51,6 +51,12 @@ public static class Shot {
         SetForegroundWindow(h);
     }
 
+    public static int[] Bounds(IntPtr h) {
+        RECT r;
+        if (DwmGetWindowAttribute(h, 9, out r, Marshal.SizeOf(typeof(RECT))) != 0) GetWindowRect(h, out r);
+        return new[] { r.Left, r.Top, (r.Right - r.Left) / 2 * 2, (r.Bottom - r.Top) / 2 * 2 };
+    }
+
     public static string Save(IntPtr h, string path) {
         RECT r;
         if (DwmGetWindowAttribute(h, 9, out r, Marshal.SizeOf(typeof(RECT))) != 0) GetWindowRect(h, out r);
@@ -157,6 +163,24 @@ foreach ($s in $shots) {
         Start-Sleep 1
     }
 }
+
+# A short video of the tour's hands-on demo ("Show me"), when ffmpeg is there
+$ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+if ($ffmpeg) {
+    $p = Start-App $exe @('--page', 'overview', '--theme', 'light', '--tour', '1', '--tour-showme', '--size', '1360x880') (Split-Path $exe)
+    try {
+        $h = Wait-Window $p
+        [Shot]::Front($h)
+        $b = [Shot]::Bounds($h)
+        & $ffmpeg.Source -y -loglevel error -f gdigrab -framerate 24 -offset_x $b[0] -offset_y $b[1] -video_size "$($b[2])x$($b[3])" -i desktop `
+            -t 16 -vf 'scale=1280:-2' -c:v libx264 -crf 24 -pix_fmt yuv420p (Join-Path $Out 'tour-demo.mp4')
+        Write-Host "video: $LASTEXITCODE"
+    } catch { Write-Host "video FAILED: $_" }
+    finally {
+        if (-not $p.HasExited) { $p.Kill() }
+        Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -gt $p.StartTime } | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+} else { Write-Host 'no ffmpeg: no video' }
 
 if ($WebApp) {
     # The web version from the port (imagegenkit app), for comparison

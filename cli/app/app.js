@@ -15,7 +15,9 @@ async function api(path, body, opts = {}) {
     if (body instanceof Blob) { init.body = body; init.headers["X-Filename"] = encodeURIComponent(opts.filename || "image.png"); }
     else { init.body = JSON.stringify(body); init.headers["Content-Type"] = "application/json"; }
   }
-  const r = await fetch(path, init);
+  let r;
+  try { r = await fetch(path, init); }
+  catch (e) { throw new Error("ImageGenKit isn't running. Open it again from the Start menu."); }
   let data = null;
   try { data = await r.json(); } catch (e) { /* empty */ }
   if (!r.ok || (data && data.error)) throw new Error((data && data.error) || `HTTP ${r.status}`);

@@ -685,7 +685,7 @@ def app_browser():
 def launch_window(url):
     exe = app_browser()
     if exe:
-        profile = igk.CONFIG_DIR / "app-window"  # its own profile: own window size, no tabs or extensions
+        profile = APP_PROFILE  # its own profile: own window size, no tabs or extensions
         try:
             proc = subprocess.Popen([exe, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1280,860",
                                      "--no-first-run", "--no-default-browser-check"], creationflags=NO_WINDOW)
@@ -694,6 +694,26 @@ def launch_window(url):
             pass
     webbrowser.open(url)
     return None
+
+
+APP_PROFILE = igk.CONFIG_DIR / "app-window"
+
+
+def window_open():
+    """Whether any app window is open: its browser keeps the profile's lock file open (Windows) or a SingletonLock
+    link (Linux, macOS). This also covers windows that Edge handed to an already running browser process."""
+    if sys.platform == "win32":
+        lock = APP_PROFILE / "lockfile"
+        if not lock.exists():
+            return False
+        try:
+            with open(lock, "r+b"):  # Chromium opens it without sharing while it runs
+                return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+    return os.path.islink(APP_PROFILE / "SingletonLock")
 
 
 def pid_alive(pid):
@@ -738,8 +758,7 @@ def watchdog(server):
         if any(j.status == "running" for j in JOBS.values()):
             window_gone = None
             continue
-        alive = {p for p in WATCHED if pid_alive(p)}
-        if alive:
+        if any(pid_alive(p) for p in WATCHED) or (WATCHED and window_open()):
             window_gone = None
             continue
         if WATCHED:  # had a window, now none: quit unless a page came back (reload, new window)

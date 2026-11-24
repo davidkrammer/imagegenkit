@@ -32,7 +32,8 @@ STATIC = HERE / "app"
 UPLOADS = igk.CONFIG_DIR / "uploads"
 INSTANCE = igk.CONFIG_DIR / "app.json"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp"}
-IDLE_EXIT = 45  # seconds without a page open before the server quits (it starts again from the Start menu)
+IDLE_EXIT = 900  # without an app window to watch: seconds without any page request before the server quits
+WINDOW_GRACE = 20  # after the last app window process exits, give a reload or a new window this long
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 CLI = str(HERE / "imagegenkit.py")
@@ -40,6 +41,7 @@ TOKEN = secrets.token_urlsafe(24)
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 LAST_PING = [time.time()]
+WATCHED = set()  # pids of the app-window browser processes; the server lives while one runs
 
 
 # ---------- helpers ----------
@@ -630,6 +632,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/update":
                 code, out, err = run_cli(["update"], timeout=120)
                 return self.send_json({"ok": code == 0, "message": (out.strip() or clean_err(err))})
+            if path == "/api/watch":
+                if isinstance(b.get("pid"), int):
+                    WATCHED.add(b["pid"])
+                return self.send_json({"ok": True})
             if path == "/api/quit":
                 self.send_json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -664,12 +670,32 @@ def launch_window(url):
     if exe:
         profile = igk.CONFIG_DIR / "app-window"  # its own profile: own window size, no tabs or extensions
         try:
-            subprocess.Popen([exe, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1280,860",
-                              "--no-first-run", "--no-default-browser-check"], creationflags=NO_WINDOW)
-            return
+            proc = subprocess.Popen([exe, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1280,860",
+                                     "--no-first-run", "--no-default-browser-check"], creationflags=NO_WINDOW)
+            return proc.pid
         except OSError:
             pass
     webbrowser.open(url)
+    return None
+
+
+def pid_alive(pid):
+    if sys.platform == "win32":
+        import ctypes
+        k32 = ctypes.WinDLL("kernel32")
+        h = k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(k32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def running_instance():
@@ -686,11 +712,25 @@ def running_instance():
 
 
 def watchdog(server):
-    """Quit when no page has talked to the server for a while (the window was closed)."""
+    """Quit when the app window is closed. The window's browser process is watched (a hidden window's timers are
+    throttled, so pings alone can't tell a background window from a closed one). Without a process to watch
+    (a normal browser tab), quit after a long time without requests. Never while a job runs."""
+    window_gone = None
     while True:
-        time.sleep(5)
-        busy = any(j.status == "running" for j in JOBS.values())
-        if not busy and time.time() - LAST_PING[0] > IDLE_EXIT:
+        time.sleep(3)
+        if any(j.status == "running" for j in JOBS.values()):
+            window_gone = None
+            continue
+        alive = {p for p in WATCHED if pid_alive(p)}
+        if alive:
+            window_gone = None
+            continue
+        if WATCHED:  # had a window, now none: quit unless a page came back (reload, new window)
+            window_gone = window_gone or time.time()
+            if time.time() - window_gone > WINDOW_GRACE and time.time() - LAST_PING[0] > WINDOW_GRACE:
+                server.shutdown()
+                return
+        elif time.time() - LAST_PING[0] > IDLE_EXIT:
             server.shutdown()
             return
 
@@ -703,7 +743,16 @@ def main(port=0, open_window=True, cli_path=None, stay=False):
     if existing:
         print(existing, flush=True)
         if open_window:
-            launch_window(existing)
+            pid = launch_window(existing)
+            if pid:  # let the running server watch this window too
+                try:
+                    info = json.loads(INSTANCE.read_text(encoding="utf-8"))
+                    req = urllib.request.Request(f"http://127.0.0.1:{info['port']}/api/watch", method="POST",
+                                                 data=json.dumps({"pid": pid}).encode(),
+                                                 headers={"X-IGK-Token": info["token"], "Content-Type": "application/json"})
+                    urllib.request.urlopen(req, timeout=3).close()
+                except (OSError, ValueError, KeyError):
+                    pass
         return
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
@@ -717,7 +766,9 @@ def main(port=0, open_window=True, cli_path=None, stay=False):
     print(f"ImageGenKit app: {url}", flush=True)
     LAST_PING[0] = time.time() + 30  # give the window time to open
     if open_window:
-        launch_window(url)
+        pid = launch_window(url)
+        if pid:
+            WATCHED.add(pid)
     if not stay:
         threading.Thread(target=watchdog, args=(server,), daemon=True).start()
     try:

@@ -355,9 +355,26 @@ def open_terminal(action):
     if not cmd:
         raise ApiFailure("unknown action")
     if sys.platform == "win32":
+        import base64
+        need = "npm" if cmd.startswith("npm ") else cmd.split()[0] if action.startswith("login") else None
+        hint = {"npm": "Codex needs Node.js first. Install it with:  winget install OpenJS.NodeJS.LTS  then open a new terminal.",
+                "codex": "Codex isn't installed yet. Use the Install button first.",
+                "grok": "Grok Build isn't installed yet. Use the Install button first."}.get(need, "")
+        lines = [f"Write-Host '> {cmd}' -ForegroundColor DarkGray"]
+        if need:  # a fresh PATH: an install that just finished in another terminal counts
+            lines.insert(0, "$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + "
+                            "[Environment]::GetEnvironmentVariable('Path','User') + ';' + $env:USERPROFILE + '\\.grok\\bin'")
+            lines.append(f"if (-not (Get-Command {need} -ErrorAction SilentlyContinue)) {{ Write-Host \"{hint}\" -ForegroundColor Yellow }}"
+                         f" else {{ {cmd} }}")
+        else:
+            lines.append(cmd)
+        lines.append("Write-Host ''; Write-Host 'Done? Go back to ImageGenKit and click Check now.' -ForegroundColor Green")
+        # Encoded, so Windows Terminal doesn't split the script at ';' (its own command separator) and nothing needs quoting.
+        script = base64.b64encode("\n".join(lines).encode("utf-16-le")).decode()
+        ps = ["powershell", "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", script]
         wt = shutil.which("wt")
-        ps = ["powershell", "-NoExit", "-NoProfile", "-Command", f"Write-Host '> {cmd}'; {cmd}"]
-        subprocess.Popen(([wt, "new-tab"] + ps) if wt else ps, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+        subprocess.Popen(([wt, "new-tab", "--title", "ImageGenKit setup"] + ps) if wt else ps,
+                         creationflags=0 if wt else getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
     elif sys.platform == "darwin":
         subprocess.Popen(["osascript", "-e", f'tell app "Terminal" to do script "{cmd}"'])
     else:

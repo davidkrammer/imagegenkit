@@ -39,8 +39,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-VERSION = "1.1.0-win.1"
-GITHUB_REPO = os.environ.get("IMAGEGENKIT_REPO", "Tvhawk/imagegenkit")  # updates come from this repo
+VERSION = "1.2.0"
+GITHUB_REPO = "davidkrammer/imagegenkit"  # updates come from this repo (the env overrides below are for tests)
 HOMEPAGE = f"https://github.com/{GITHUB_REPO}"
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"

@@ -218,9 +218,9 @@ def log_payload(limit):
 # ---------- jobs (generate, model downloads) ----------
 
 class Job:
-    def __init__(self, kind, args, label):
+    def __init__(self, kind, args, label, stdin_text=None):
         self.id = uuid.uuid4().hex[:12]
-        self.kind, self.args, self.label = kind, args, label
+        self.kind, self.args, self.label, self.stdin_text = kind, args, label, stdin_text
         self.lines, self.outputs, self.events = [], [], []
         self.status, self.code, self.started, self.ended = "running", None, time.time(), None
         self.proc = None
@@ -229,7 +229,11 @@ class Job:
         env = dict(os.environ, IMAGEGENKIT_NO_UPDATE="1", PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
         try:
             self.proc = subprocess.Popen([python_exe(), CLI] + self.args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                         stdin=subprocess.DEVNULL, env=env, creationflags=NO_WINDOW)
+                                         stdin=subprocess.PIPE if self.stdin_text is not None else subprocess.DEVNULL,
+                                         env=env, creationflags=NO_WINDOW)
+            if self.stdin_text is not None:  # the prompt: never on the command line (it could start with "-")
+                self.proc.stdin.write(self.stdin_text.encode("utf-8"))
+                self.proc.stdin.close()
         except OSError as e:
             self.lines.append(str(e))
             self.status, self.code, self.ended = "failed", 1, time.time()
@@ -275,8 +279,8 @@ class Job:
                 "seconds": round((self.ended or time.time()) - self.started, 1)}
 
 
-def start_job(kind, args, label):
-    job = Job(kind, args, label)
+def start_job(kind, args, label, stdin_text=None):
+    job = Job(kind, args, label, stdin_text)
     with JOBS_LOCK:
         JOBS[job.id] = job
         for old in [j for j in JOBS.values() if j.ended and time.time() - j.ended > 3600]:
@@ -292,7 +296,7 @@ def generate_args(b):
     prompt = (b.get("prompt") or "").strip()
     if not prompt:
         raise ApiFailure("Write a prompt first.")
-    args = [target, prompt]
+    args = [target, "-"]  # "-": the prompt comes on stdin
     for key, flag in (("aspect", "--aspect"), ("resolution", "--resolution"), ("quality", "--quality"),
                       ("background", "--background"), ("format", "--format"), ("model", "-m"), ("size", "--size")):
         v = b.get(key)
@@ -309,7 +313,10 @@ def generate_args(b):
         args += ["-p", b["provider"]]
     if b.get("out"):
         args += ["-o", b["out"]]
-    return args, target
+    for i in range(3, len(args), 2):  # option values from the page are never options themselves
+        if str(args[i]).startswith("-"):
+            raise ApiFailure(f"{args[i - 1]} can't start with '-'")
+    return args, target, prompt
 
 
 # ---------- system actions ----------
@@ -419,9 +426,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def send_bytes(self, data, ctype, cache=False):
+    def send_bytes(self, data, ctype, cache=False, headers=None):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "private, max-age=3600" if cache else "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -456,8 +465,13 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             if q.get("t", [""])[0] != TOKEN:
                 return self.deny()
+            nonce = secrets.token_urlsafe(12)
             html = (STATIC / "index.html").read_text(encoding="utf-8").replace("__IGK_TOKEN__", TOKEN)
-            return self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")
+            html = html.replace("<script>", f'<script nonce="{nonce}">')
+            csp = (f"default-src 'none'; script-src 'self' 'nonce-{nonce}'; style-src 'self' 'unsafe-inline'; "
+                   "img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; "
+                   "frame-ancestors 'none'")
+            return self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8", headers={"Content-Security-Policy": csp})
         if path.startswith("/static/"):
             f = (STATIC / path[len("/static/"):]).resolve()
             if STATIC.resolve() not in f.parents or not f.is_file():
@@ -493,10 +507,10 @@ class Handler(BaseHTTPRequestHandler):
                 data, _ = cli_json(["local-models", "list", "--json"] + (["--refresh"] if q.get("refresh") else []), timeout=60)
                 return self.send_json(data)
             if path == "/api/local/search":
-                data, _ = cli_json(["local-models", "search", q.get("q", [""])[0], "--json", "--limit", "20"], timeout=120)
+                data, _ = cli_json(["local-models", "search", "--json", "--limit", "20", "--", q.get("q", [""])[0]], timeout=120)
                 return self.send_json(data)
             if path == "/api/models":
-                code, out, err = run_cli(["models", q.get("provider", ["openai"])[0]], timeout=60)
+                code, out, err = run_cli(["models", "--", q.get("provider", ["openai"])[0]], timeout=60)
                 if code:
                     raise ApiFailure(clean_err(err))
                 return self.send_json([ln.strip() for ln in out.splitlines() if ln.strip()])
@@ -526,8 +540,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"path": str(dest)})
             b = self.json_body()
             if path == "/api/generate":
-                args, target = generate_args(b)
-                job = start_job("generate", args, f"{target}: {b.get('prompt', '')[:60]}")
+                args, target, prompt = generate_args(b)
+                job = start_job("generate", args, f"{target}: {prompt[:60]}", stdin_text=prompt)
                 return self.send_json(job.view())
             if path.startswith("/api/jobs/") and path.endswith("/cancel"):
                 job = JOBS.get(path.split("/")[3])
@@ -538,15 +552,15 @@ class Handler(BaseHTTPRequestHandler):
                 provider, key = b.get("provider", ""), (b.get("key") or "").strip()
                 if not provider or not key:
                     raise ApiFailure("provider and key are needed")
-                code, out, err = run_cli(["set-key", provider, "--stdin"], input_text=key, timeout=90)
+                code, out, err = run_cli(["set-key", "--stdin", "--", provider], input_text=key, timeout=90)
                 if code:
                     raise ApiFailure(clean_err(err) or "couldn't save the key")
                 return self.send_json({"ok": True, "message": out.strip()})
             if path == "/api/key/delete":
-                code, out, err = run_cli(["delete-key", b.get("provider", "")])
+                code, out, err = run_cli(["delete-key", "--", b.get("provider", "")])
                 return self.send_json({"ok": code == 0, "message": (out or err).strip()})
             if path == "/api/check":
-                args = ["check", "--json"] + ([b["provider"]] if b.get("provider") else [])
+                args = ["check", "--json"] + (["--", b["provider"]] if b.get("provider") else [])
                 code, out, err = run_cli(args, timeout=120)
                 try:
                     return self.send_json(json.loads(out))
@@ -557,27 +571,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(state())
             if path == "/api/provider":
                 if b.get("action") == "add":
-                    args = ["provider", "add", b.get("name", ""), "--base-url", b.get("base_url", ""), "--model", b.get("model", "")]
+                    args = ["provider", "--base-url", b.get("base_url", ""), "--model", b.get("model", "")]
                     if b.get("label"):
                         args += ["--label", b["label"]]
                     if b.get("edit_model"):
                         args += ["--edit-model", b["edit_model"]]
+                    if any(str(v).startswith("-") for v in args[2::2]):
+                        raise ApiFailure("values can't start with '-'")
+                    args += ["--", "add", b.get("name", "")]
                 else:
-                    args = ["provider", "remove", b.get("name", "")]
+                    args = ["provider", "--", "remove", b.get("name", "")]
                 code, out, err = run_cli(args)
                 if code:
                     raise ApiFailure(clean_err(err))
                 return self.send_json({"ok": True, "message": out.strip()})
             if path == "/api/local/add":
-                args = ["local-models", "add", b.get("model", ""), "--json"]
+                args = ["local-models", "add", "--json"]
                 if b.get("recipe"):
                     args += ["--recipe", b["recipe"]]
                 if b.get("file"):
                     args += ["--file", b["file"]]
+                if any(str(v).startswith("-") for v in args[4::2]):
+                    raise ApiFailure("values can't start with '-'")
+                args += ["--", b.get("model", "")]
                 job = start_job("download", args, b.get("label") or b.get("model", ""))
                 return self.send_json(job.view())
             if path == "/api/local/remove":
-                data, _ = cli_json(["local-models", "remove", b.get("model", ""), "--json"])
+                data, _ = cli_json(["local-models", "remove", "--json", "--", b.get("model", "")])
                 return self.send_json(data)
             if path == "/api/reveal":
                 p = b.get("path", "")

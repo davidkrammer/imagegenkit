@@ -3,7 +3,7 @@ name: imagegenkit
 description: Generate or edit images with the local `imagegenkit` command (ImageGenKit). Use it whenever the user asks to create, generate, render, mock up or edit an image, or a task needs a raster image asset (photos, product shots, thumbnails, mockups, icons, illustrations, backgrounds, app/store assets, transparent PNGs, restyles, combining reference images).
 metadata:
   managed-by: ImageGenKit
-  version: 1.1.0-win.1
+  version: 1.2.0
 ---
 
 # Images with `imagegenkit`

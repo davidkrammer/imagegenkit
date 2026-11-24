@@ -13,14 +13,13 @@ Use these steps instead of the macOS ones below. Run them in PowerShell.
 2. Install the command, the app and the skills:
 
    ```powershell
-   irm https://raw.githubusercontent.com/Tvhawk/imagegenkit/main/install.ps1 | iex
+   irm https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/install.ps1 | iex
    ```
 
-   It adds `%USERPROFILE%\.localin` to the user's PATH; new terminals pick it up.
+   It adds `%USERPROFILE%\.local\bin` to the user's PATH; new terminals pick it up.
 3. Ask the user to open **ImageGenKit** from the Start menu (or run `imagegenkit app`) and connect a provider in
    Settings › Providers. Keys go into the Windows Credential Manager there, never into the chat.
-4. Check with `imagegenkit providers` and try `imagegenkit draft "a cozy reading nook, warm light" -o "$HOME\Desktop
-ook.jpg"`.
+4. Check with `imagegenkit providers` and try `imagegenkit draft "a cozy reading nook, warm light" -o "$HOME\Desktop\nook.jpg"`.
 
 ## 1. Install the app (macOS)
 

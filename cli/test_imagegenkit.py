@@ -278,11 +278,15 @@ class AppServerTests(unittest.TestCase):
             self.app.generate_args({"target": "rm -rf", "prompt": "x"})
         with self.assertRaises(self.app.ApiFailure):  # a reference must be an image the app knows
             self.app.generate_args({"target": "edit", "prompt": "x", "refs": [str(Path(HOME) / "secret.png")]})
-        args, target = self.app.generate_args({"target": "final", "prompt": "a mug", "aspect": "4:5", "n": 20, "quality": "high"})
-        self.assertEqual(target, "final")
-        self.assertEqual(args[:2], ["final", "a mug"])
+        args, target, prompt = self.app.generate_args({"target": "final", "prompt": "a mug", "aspect": "4:5", "n": 20, "quality": "high"})
+        self.assertEqual((target, prompt), ("final", "a mug"))
+        self.assertEqual(args[:2], ["final", "-"])  # the prompt goes on stdin, never on the command line
         self.assertIn("--aspect", args)
         self.assertEqual(args[args.index("-n") + 1], "8")  # capped
+        args, _, prompt = self.app.generate_args({"target": "draft", "prompt": "-o C:\\x.png --extra a=b"})
+        self.assertEqual((args, prompt), (["draft", "-"], "-o C:\\x.png --extra a=b"))  # a prompt can't add options
+        with self.assertRaises(self.app.ApiFailure):  # nor can an option value
+            self.app.generate_args({"target": "draft", "prompt": "x", "model": "--extra"})
 
 
 def urllib_quote(s):

@@ -621,12 +621,28 @@ public sealed partial class SettingsPage : Page, IRefreshable
         Body.Children.Add(Card("Save images to", outDir, Glyph(""), Ui.Row(8, change, open)));
 
         Heading("Updates");
+        var u = Updater.Shared;
+        UIElement action = u.State switch
+        {
+            Updater.Phase.Checking or Updater.Phase.Downloading => new ProgressRing { IsActive = true, Width = 20, Height = 20 },
+            Updater.Phase.Available => Ui.LabelButton("\uE896", $"Update to {u.Latest}", async (_, _) => { await u.InstallAsync(); Refresh(); }, accent: true),
+            _ => Ui.LabelButton("\uE72C", "Check for Updates", async (_, _) => { var t = u.CheckAsync(); Refresh(); await t; Refresh(); }),
+        };
+        string state = u.State switch
+        {
+            Updater.Phase.UpToDate => "Up to date",
+            Updater.Phase.Available => $"Version {u.Latest} is available",
+            Updater.Phase.Downloading => "Downloading the update…",
+            Updater.Phase.Failed => u.Error ?? "Couldn't check",
+            _ => "Updates come from GitHub",
+        };
+        Body.Children.Add(Card($"ImageGenKit {Updater.Current}", state, Glyph("\uE895"), action));
         var auto = new ToggleSwitch { IsOn = s.State.Bool("auto_update", true), OnContent = "", OffContent = "" };
         auto.Toggled += async (_, _) => await Run(() => auto.IsOn ? SetConfig(new(), new[] { "auto_update" }) : SetConfig(new() { ["auto_update"] = false }));
-        Body.Children.Add(Card("Update the imagegenkit command by itself", "Checks GitHub once a day.", Glyph(""), auto));
+        Body.Children.Add(Card("Update the imagegenkit command by itself", "When you use it without the app. Checks GitHub once a day.", Glyph(""), auto));
 
         Heading("About");
-        var version = s.State.Str("version");
+        var version = Updater.Current;
         var links = Ui.Row(8,
             Ui.LabelButton("", "GitHub", (_, _) => OpenUrl("https://github.com/davidkrammer/imagegenkit")),
             Ui.LabelButton("", "Donate", (_, _) => OpenUrl("https://github.com/davidkrammer/imagegenkit#support")));

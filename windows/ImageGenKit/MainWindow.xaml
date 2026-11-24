@@ -92,6 +92,12 @@
                 <Frame x:Name="ContentFrame" Grid.Row="1" />
                 <InfoBar x:Name="ErrorBar" Grid.Row="1" IsOpen="False" Severity="Error" VerticalAlignment="Bottom"
                          Margin="36,0,36,20" IsClosable="True" />
+                <InfoBar x:Name="UpdateBar" Grid.Row="1" IsOpen="False" Severity="Informational" VerticalAlignment="Bottom"
+                         Margin="36,0,36,20" IsClosable="True" Title="Update available">
+                    <InfoBar.ActionButton>
+                        <Button x:Name="UpdateButton" Content="Update Now" Click="UpdateButton_Click" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
             </Grid>
         </NavigationView>
     </Grid>

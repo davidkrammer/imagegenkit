@@ -47,7 +47,16 @@ public sealed partial class MainWindow : Window
         {
             Navigate(o.Page);
             await Store.Shared.LoadAsync();
+            KeepCommandCurrent();
+            await Updater.Shared.CheckAsync(quiet: true);
         };
+        Updater.Shared.Changed += () => DispatcherQueue.TryEnqueue(() =>
+        {
+            var u = Updater.Shared;
+            UpdateBar.Message = u.State == Updater.Phase.Downloading ? $"Downloading ImageGenKit {u.Latest}…" : $"ImageGenKit {u.Latest} is ready to install.";
+            UpdateBar.IsOpen = u.State is Updater.Phase.Available or Updater.Phase.Downloading;
+            UpdateButton.IsEnabled = u.State == Updater.Phase.Available;
+        });
         Closed += (_, _) => Backend.Shared.Stop();
     }
 
@@ -87,6 +96,15 @@ public sealed partial class MainWindow : Window
         SearchBox.Visibility = page is "gallery" or "history" ? Visibility.Visible : Visibility.Collapsed;
         ContentFrame.Navigate(type, parameter, new EntranceNavigationTransitionInfo());
         UpdateSubtitle();
+    }
+
+    async void UpdateButton_Click(object sender, RoutedEventArgs e) => await Updater.Shared.InstallAsync();
+
+    /// Once per launch: bring the imagegenkit command for agents up to the version in this app (only when installed).
+    static void KeepCommandCurrent()
+    {
+        try { if (CommandInstaller.Outdated) Task.Run(CommandInstaller.Install); }
+        catch (Exception ex) { Log.Write("command update: " + ex.Message); }
     }
 
     public void OpenGenerate(string? reference = null) => Navigate("generate", reference ?? "");

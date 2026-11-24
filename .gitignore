@@ -19,3 +19,8 @@ __pycache__/
 
 # local Claude Code settings
 .claude/
+
+# Windows app build output
+windows/**/bin/
+windows/**/obj/
+out/

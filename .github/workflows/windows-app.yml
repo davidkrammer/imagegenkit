@@ -1,0 +1,51 @@
+name: Windows app
+
+on:
+  push:
+    branches: [main, windows]
+    paths: ['windows/**', 'cli/**', 'catalog/**', 'skill/**', '.github/workflows/windows-app.yml']
+  pull_request:
+    paths: ['windows/**', 'cli/**', 'catalog/**', 'skill/**', '.github/workflows/windows-app.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: Build, bundle and screenshot
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build
+        run: dotnet publish windows/ImageGenKit/ImageGenKit.csproj -c Release -r win-x64 -p:Platform=x64 -o out/ImageGenKit
+
+      - name: Add the command line and Python
+        shell: pwsh
+        run: windows/tools/bundle.ps1 -Dir out/ImageGenKit
+
+      - name: Screenshots with demo data
+        shell: powershell
+        run: windows/tools/screenshots.ps1 -App out/ImageGenKit/ImageGenKit.exe -Out shots -WebApp
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots
+
+      - name: Zip the app
+        shell: pwsh
+        run: Compress-Archive -Path out/ImageGenKit/* -DestinationPath ImageGenKit-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ImageGenKit-windows-x64
+          path: ImageGenKit-windows-x64.zip

@@ -509,8 +509,13 @@ function bindProvBody(b, p, body) {
   if (rm) rm.onclick = async () => { if (!confirm(`Remove ${p.label}?`)) return; try { await api("/api/provider", { action: "remove", name: p.name }); await reloadState(); settingsProviders(body); } catch (err) { toast(err.message, true); } };
   $("[data-check]", b).onclick = async () => {
     const out = $("[data-checkout]", b); out.innerHTML = '<span class="spinner"></span>';
-    try { const [r] = await api("/api/check", { provider: p.name }); out.innerHTML = `<span class="chip ${r.status === "ok" ? "ok" : r.status === "error" ? "bad" : ""}">${esc(r.status.toUpperCase())}</span> ${esc(r.message)}`; }
-    catch (err) { out.textContent = err.message; }
+    let html;
+    try { const [r] = await api("/api/check", { provider: p.name }); html = `<span class="chip ${r.status === "ok" ? "ok" : r.status === "error" ? "bad" : ""}">${esc(r.status.toUpperCase())}</span> ${esc(r.message)}`; }
+    catch (err) { html = esc(err.message); }
+    try { await reloadState(); } catch (e) { /* keep the old status */ }
+    settingsProviders(body);  // the status chip may have changed (e.g. just installed or logged in)
+    const again = $(`[data-p="${CSS.escape(p.name)}"] [data-checkout]`, body);
+    if (again) again.innerHTML = html;
   };
 }
 
@@ -678,6 +683,10 @@ $("#generate-open").onclick = () => openGenerate();
 $("#f-search").oninput = () => { clearTimeout(render._t); render._t = setTimeout(render, 150); };
 document.addEventListener("keydown", (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "n" && !$(".modal-back")) { ev.preventDefault(); openGenerate(); } });
 setInterval(() => api("/api/ping").catch(() => {}), 10000);
+window.addEventListener("focus", async () => {  // back from a terminal or a browser: logins and installs show up
+  if (!S.state || $(".modal-back") || document.activeElement?.matches?.("input, textarea")) return;
+  try { await reloadState(); if (S.view === "settings" && S.tab === "providers") settingsProviders($("#settings-body")); else if (S.view !== "settings") render(); } catch (e) { /* offline */ }
+});
 let lastSize = 0;
 setInterval(async () => {  // agents make images too: pick up new log entries
   if ($(".modal-back")) return;

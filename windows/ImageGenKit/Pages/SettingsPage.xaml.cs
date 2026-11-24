@@ -561,7 +561,7 @@ public sealed partial class SettingsPage : Page, IRefreshable
             Updater.Phase.Failed => u.Error ?? "Couldn't check",
             _ => "Updates come from GitHub",
         };
-        Body.Children.Add(Card($"ImageGenKit {Updater.Current}", state, Glyph("\uE895"), action));
+        Body.Children.Add(Card("Updates", $"Version {Updater.Current} · {state}", Glyph("\uE895"), action));
         var auto = new ToggleSwitch { IsOn = s.State.Bool("auto_update", true), OnContent = "", OffContent = "" };
         auto.Toggled += async (_, _) => await Run(() => auto.IsOn ? SetConfig(new(), new[] { "auto_update" }) : SetConfig(new() { ["auto_update"] = false }));
         Body.Children.Add(Card("Update the imagegenkit command by itself", "When you use it without the app. Checks GitHub once a day.", Glyph(""), auto));
@@ -577,11 +577,20 @@ public sealed partial class SettingsPage : Page, IRefreshable
         Body.Children.Add(Card("Terms of use", accepted, Glyph("\uE8A5"), legal));
 
         Heading("About");
-        var version = Updater.Current;
-        var links = Ui.Row(8,
-            Ui.LabelButton("", "GitHub", (_, _) => OpenUrl("https://github.com/davidkrammer/imagegenkit")),
-            Ui.LabelButton("", "Donate", (_, _) => OpenUrl("https://github.com/davidkrammer/imagegenkit#support")));
-        Body.Children.Add(Card($"ImageGenKit {version}", "Free and open source. Made by STRICS IT GmbH, Austria.", Glyph(""), links));
+        var donate = new DropDownButton { Content = Ui.Row(8, Ui.Icon("\uEB51", 14), Ui.Text("Donate")) };
+        var donateMenu = new MenuFlyout { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Bottom };
+        var paypal = new MenuFlyoutItem { Text = "PayPal" };
+        paypal.Click += (_, _) => OpenUrl("https://www.paypal.com/donate/?business=hello%40strics.at&currency_code=EUR&item_name=ImageGenKit");
+        var sponsors = new MenuFlyoutItem { Text = "GitHub Sponsors" };
+        sponsors.Click += (_, _) => OpenUrl("https://github.com/sponsors/davidkrammer");
+        donateMenu.Items.Add(paypal);
+        donateMenu.Items.Add(sponsors);
+        donate.Flyout = donateMenu;
+        ToolTipService.SetToolTip(donate, "ImageGenKit is free. A donation helps keep it going.");
+        var links = Ui.Row(8, Ui.LabelButton("\uE8A7", "GitHub", (_, _) => OpenUrl("https://github.com/davidkrammer/imagegenkit")), donate);
+        var appIcon = new ImageIcon { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/AppIcon.png")) };
+        Body.Children.Add(Card($"ImageGenKit {Updater.Current}",
+            "Free and open source (MIT License). Made by STRICS IT GmbH, Austria.", appIcon, links));
     }
 
     static void OpenUrl(string url) => ProviderSetup.OpenUrl(url);

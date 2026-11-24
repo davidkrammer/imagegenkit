@@ -140,7 +140,8 @@ $shots = @(
     @{ Name = '17-tour-provider-light'; Args = @('--page', 'overview', '--theme', 'light', '--tour', '3') },
     @{ Name = '18-tour-agents-dark'; Args = @('--page', 'overview', '--theme', 'dark', '--tour', '4'); Wait = 12 },
     @{ Name = '19-tour-done-light'; Args = @('--page', 'overview', '--theme', 'light', '--tour', '5') },
-    @{ Name = '20-overview-empty-light'; Args = @('--page', 'overview', '--theme', 'light'); Profile = $emptyProfile }
+    @{ Name = '20-overview-empty-light'; Args = @('--page', 'overview', '--theme', 'light'); Profile = $emptyProfile },
+    @{ Name = '21-settings-general-dark'; Args = @('--page', 'settings', '--theme', 'dark', '--settings-section', 'general') }
 )
 
 $exe = (Resolve-Path $App).Path

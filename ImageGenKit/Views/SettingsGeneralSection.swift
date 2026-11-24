@@ -1,7 +1,7 @@
 import ServiceManagement
 import SwiftUI
 
-/// Menu bar item and open at login.
+/// Menu bar item, open at login, and the terms of use.
 struct SettingsGeneralSection: View {
     @AppStorage("showMenuBar") private var showMenuBar = true
     @State private var loginStatus = SMAppService.mainApp.status
@@ -21,10 +21,23 @@ struct SettingsGeneralSection: View {
                     Toggle("Open at login", isOn: loginBinding).labelsHidden().toggleStyle(.switch).tint(Theme.switchTint)
                 }
             }
+            SettingsDivider(inset: 58)
+            SettingsRow(icon: "doc.text", title: "Terms of use", detail: termsDetail) {
+                HStack(spacing: 14) {
+                    Link("Terms of Use", destination: TermsConsent.url)
+                    Link("Privacy Policy", destination: TermsConsent.privacyURL)
+                }
+                .foregroundStyle(Theme.accent)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             loginStatus = SMAppService.mainApp.status
         }
+    }
+
+    private var termsDetail: String {
+        guard let date = TermsConsent.acceptedAt else { return "Version \(TermsConsent.version)" }
+        return "Version \(TermsConsent.version), accepted on \(date.formatted(date: .abbreviated, time: .omitted))"
     }
 
     private var loginDetail: String? {

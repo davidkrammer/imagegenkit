@@ -28,8 +28,32 @@ struct RootView: View {
     @AppStorage("sidebarSection") private var item: SidebarItem = .overview
     @State private var showInspector = false
     @State private var showGenerate = false
+    @State private var termsAccepted = TermsConsent.accepted
 
     var body: some View {
+        Group {
+            if termsAccepted {
+                main.transition(.opacity)
+            } else {
+                // The terms come first and cover the whole window until they're accepted; the tour follows.
+                TermsConsentView { withAnimation(.smooth(duration: 0.35)) { termsAccepted = true } }
+                    .transition(.opacity)
+            }
+        }
+        .task {
+            store.start()
+            applyLaunchOptions()
+            config.catalogPrices = Dictionary(uniqueKeysWithValues: catalog.providers.map { ($0.id, $0.prices) })
+            await installer.refresh()
+            await status.refresh(config.providers)
+            if status.state("local").isReady { await LocalModels.shared.refresh(installer: installer) }
+            await updater.check(quiet: true)
+            await catalog.refresh()
+            config.catalogPrices = Dictionary(uniqueKeysWithValues: catalog.providers.map { ($0.id, $0.prices) })
+        }
+    }
+
+    private var main: some View {
         NavigationSplitView {
             SidebarColumn(item: $item, showGenerate: $showGenerate)
                 .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
@@ -58,17 +82,6 @@ struct RootView: View {
         .onAppear(perform: applyLaunchSection)
         .onChange(of: store.selectedID) { _, id in
             if id != nil { showInspector = true }
-        }
-        .task {
-            store.start()
-            applyLaunchOptions()
-            config.catalogPrices = Dictionary(uniqueKeysWithValues: catalog.providers.map { ($0.id, $0.prices) })
-            await installer.refresh()
-            await status.refresh(config.providers)
-            if status.state("local").isReady { await LocalModels.shared.refresh(installer: installer) }
-            await updater.check(quiet: true)
-            await catalog.refresh()
-            config.catalogPrices = Dictionary(uniqueKeysWithValues: catalog.providers.map { ($0.id, $0.prices) })
         }
     }
 

@@ -335,70 +335,131 @@ function openDetail(id, i) {
 
 // ---------- generate ----------
 const ASPECTS = ["", "1:1", "4:5", "3:4", "2:3", "16:9", "9:16", "3:2", "21:9"];
+function segHtml(id, options, value) {
+  return `<div class="seg gen-seg" id="${id}">${options.map(([v, l]) => `<button type="button" data-v="${esc(v)}" class="${String(v) === String(value) ? "on" : ""}">${esc(l)}</button>`).join("")}</div>`;
+}
+function aspectBox(a) {  // the little frame next to Aspect, drawn in the chosen shape
+  const [w, h] = a ? a.split(":").map(Number) : [1, 1];
+  const s = 18 / Math.max(w, h);
+  return `<span class="aspect-box ${a ? "" : "auto"}" style="width:${Math.round(w * s)}px;height:${Math.round(h * s)}px"></span>`;
+}
 function openGenerate(init = {}, autoRun = false) {
   const st = S.state;
-  const g = S.gen = { prompt: "", target: "draft", refs: [], aspect: "", n: 1, quality: "", resolution: "", background: "", ...init, job: null };
-  const targets = Object.keys(st.task_info).map((t) => [t, `${t[0].toUpperCase() + t.slice(1)} (${provLabel(st.tasks[t]?.provider || "?")})`])
-    .concat(st.providers.map((p) => [p.name, p.label + (p.ready ? "" : " — not set up")]));
+  const ready = st.providers.filter((p) => p.ready);
+  // A task from the log ("draft", "edit"...) means the provider that handles it now.
+  let want = init.provider || init.target || "";
+  if (st.task_info[want]) want = st.tasks[want]?.provider || "";
+  const first = ready.find((p) => p.name === want) || ready.find((p) => p.name === st.tasks.draft?.provider) || ready[0];
+  const g = S.gen = { prompt: "", refs: [], aspect: "", n: 1, quality: "", resolution: "", background: "", more: false, ...init,
+    provider: first ? first.name : "", job: null };
+  if (!init.resolution && first) g.resolution = first.defaults.resolution || "";
   const m = modal(`
-    <div class="modal-head"><div class="ico">${icon.spark}</div><div><h2>Generate <span id="g-pill"></span></h2><div class="muted small" id="g-sub">Pick a task to use your settings, or a provider directly.</div></div>
+    <div class="modal-head gen-head"><div class="ico">${icon.spark}</div><div><h2>Generate <span id="g-pill"></span></h2><div class="muted" id="g-sub">Describe an image, pick a provider.</div></div>
       <button class="btn icon x" data-close>${icon.x}</button></div>
     <div class="modal-body">
-      <div class="field"><textarea id="g-prompt" rows="4" placeholder="Describe the image: subject, setting, style, composition, light.">${esc(g.prompt)}</textarea></div>
-      <div class="field"><label>References (optional: edit or combine images)</label><div class="refs" id="g-refs"></div></div>
-      <div class="opts">
-        <div class="field"><label>Use</label><select id="g-target">${targets.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("")}</select></div>
-        <div class="field"><label>Aspect</label><select id="g-aspect">${ASPECTS.map((a) => `<option value="${a}">${a || "Auto"}</option>`).join("")}</select></div>
-        <div class="field"><label>Images</label><select id="g-n">${[1, 2, 3, 4].map((n) => `<option>${n}</option>`).join("")}</select></div>
-        <div class="field"><label>Quality</label><select id="g-quality"><option value="">Default</option><option>low</option><option>medium</option><option>high</option></select></div>
-        <div class="field"><label>Resolution</label><select id="g-res"><option value="">Default</option><option>1K</option><option>2K</option><option>4K</option></select></div>
-        <div class="field"><label>Background</label><select id="g-bg"><option value="">Default</option><option value="transparent">Transparent</option><option value="opaque">Opaque</option></select></div>
+      <div class="gen-prompt" id="g-box">
+        <textarea id="g-prompt" placeholder="Describe an image…">${esc(g.prompt)}</textarea>
+        <div class="gen-refs" id="g-refs"></div>
       </div>
+      ${ready.length ? `<div class="gen-grid">
+        <label>Provider</label><div class="chips" id="g-prov">${ready.map((p) => `<button type="button" class="chip-btn ${p.name === g.provider ? "on" : ""}" data-p="${esc(p.name)}"><i class="dot" style="background:${provColor(p.name)}"></i>${esc(p.label)}</button>`).join("")}</div>
+        <label>Aspect</label><div class="row"><select id="g-aspect">${ASPECTS.map((a) => `<option value="${a}">${a || "Auto"}</option>`).join("")}</select><span id="g-abox">${aspectBox(g.aspect)}</span></div>
+        <label>Size</label><div id="g-size-wrap"></div>
+        <label>Images</label>${segHtml("g-n", [[1, "1"], [2, "2"], [3, "3"], [4, "4"]], g.n)}
+        <div class="gen-more hidden" id="g-more">
+          <label>Quality</label>${segHtml("g-quality", [["", "Default"], ["low", "Low"], ["medium", "Medium"], ["high", "High"]], g.quality)}
+          <label>Background</label>${segHtml("g-bg", [["", "Default"], ["opaque", "Opaque"], ["transparent", "Transparent"]], g.background)}
+        </div>
+      </div>` : `<div class="empty" style="padding:20px">No provider is ready yet. <a href="#" id="g-setup">Connect one in Settings</a>.</div>`}
       <div class="stage hidden" id="g-stage"></div>
     </div>
-    <div class="modal-foot"><span class="muted small grow" id="g-hint"></span><button class="btn hidden" id="g-cancel">Stop</button><button class="btn primary" id="g-run">${icon.spark}Generate</button></div>`,
-    () => { if (g.job && g.timer) clearInterval(g.timer); });
+    <div class="modal-foot"><button class="btn" id="g-more-btn"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>More</button>
+      <span class="muted grow" id="g-summary"></span><button class="btn hidden" id="g-cancel">Stop</button><button class="btn primary" id="g-run">${icon.spark}Generate</button></div>`,
+    () => { if (g.timer) clearInterval(g.timer); });
   const el = m.el;
-  $("#g-target", el).value = targets.some(([v]) => v === g.target) ? g.target : "draft";
-  $("#g-aspect", el).value = ASPECTS.includes(g.aspect) ? g.aspect : "";
+  const setup = $("#g-setup", el);
+  if (setup) setup.onclick = (ev) => { ev.preventDefault(); m.close(); S.tab = "providers"; setView("settings"); };
+  const prov = () => st.providers.find((p) => p.name === g.provider) || {};
+
+  const bindSeg = (id, key, after) => $$(`#${id} button`, el).forEach((b) => b.onclick = () => {
+    g[key] = key === "n" ? +b.dataset.v : b.dataset.v;
+    $$(`#${id} button`, el).forEach((x) => x.classList.toggle("on", x === b));
+    after && after();
+  });
+  const drawSize = () => {
+    const wrap = $("#g-size-wrap", el);
+    if (!wrap) return;
+    const p = prov();
+    const sizes = p.type === "local" ? [["0.5K", "0.5K"], ["1K", "1K"], ["2K", "2K"]] : (["grok-build", "codex-cli"].includes(p.type) ? [] : [["1K", "1K"], ["2K", "2K"], ["4K", "4K"]]);
+    if (!sizes.length) { wrap.innerHTML = '<span class="muted small">Set by the subscription</span>'; g.resolution = ""; return; }
+    if (g.resolution && !sizes.some(([v]) => v === g.resolution)) g.resolution = "";
+    wrap.innerHTML = segHtml("g-size", sizes, g.resolution);
+    $$("#g-size button", el).forEach((b) => b.onclick = () => {  // click the chosen size again for the provider's default
+      g.resolution = g.resolution === b.dataset.v ? "" : b.dataset.v;
+      $$("#g-size button", el).forEach((x) => x.classList.toggle("on", x.dataset.v === g.resolution));
+      summary();
+    });
+  };
+  const summary = () => {
+    const p = prov(), bits = [];
+    bits.push(g.quality ? g.quality[0].toUpperCase() + g.quality.slice(1) : (p.defaults?.quality ? p.defaults.quality[0].toUpperCase() + p.defaults.quality.slice(1) : "Default quality"));
+    if (g.background === "transparent") bits.push("Transparent");
+    if (g.refs.length) bits.push(`${g.refs.length} reference${g.refs.length > 1 ? "s" : ""}`);
+    $("#g-summary", el).textContent = bits.join(" · ");
+  };
+  $$("#g-prov button", el).forEach((b) => b.onclick = () => {
+    g.provider = b.dataset.p;
+    $$("#g-prov button", el).forEach((x) => x.classList.toggle("on", x === b));
+    if (!g.resolution) g.resolution = prov().defaults?.resolution || "";
+    drawSize(); summary();
+  });
+  const aspectSel = $("#g-aspect", el);
+  if (aspectSel) {
+    aspectSel.value = ASPECTS.includes(g.aspect) ? g.aspect : "";
+    aspectSel.onchange = () => { g.aspect = aspectSel.value; $("#g-abox", el).innerHTML = aspectBox(g.aspect); };
+  }
+  bindSeg("g-n", "n");
+  bindSeg("g-quality", "quality", summary);
+  bindSeg("g-bg", "background", summary);
+  $("#g-more-btn", el).onclick = () => { g.more = !g.more; const mo = $("#g-more", el); if (mo) mo.classList.toggle("hidden", !g.more); $("#g-more-btn", el).classList.toggle("on", g.more); };
+
   const drawRefs = () => {
     const box = $("#g-refs", el);
     box.innerHTML = g.refs.map((r, i) => `<div class="ref"><img src="${fileUrl(r)}" alt=""><button data-rm="${i}" title="Remove">×</button></div>`).join("") +
-      '<label class="drop" id="g-drop">Drop or click to add<input type="file" accept="image/*" multiple hidden></label>';
-    $$("[data-rm]", box).forEach((b) => b.onclick = () => { g.refs.splice(+b.dataset.rm, 1); drawRefs(); });
-    const drop = $("#g-drop", box), input = $("input", drop);
+      `<label class="add-images">${icon.image}<b>Add images</b><span class="muted">or drop them here</span><input type="file" accept="image/*" multiple hidden></label>`;
+    $$("[data-rm]", box).forEach((b) => b.onclick = () => { g.refs.splice(+b.dataset.rm, 1); drawRefs(); summary(); });
+    const input = $("input", box);
     input.onchange = () => upload([...input.files]);
-    drop.ondragover = (ev) => { ev.preventDefault(); drop.classList.add("over"); };
-    drop.ondragleave = () => drop.classList.remove("over");
-    drop.ondrop = (ev) => { ev.preventDefault(); drop.classList.remove("over"); upload([...ev.dataTransfer.files]); };
   };
   const upload = async (files) => {
     for (const f of files.filter((f) => f.type.startsWith("image/"))) {
       try { g.refs.push((await api("/api/upload", f, { filename: f.name })).path); } catch (err) { toast(err.message, true); }
     }
-    drawRefs();
+    drawRefs(); summary();
   };
+  const box = $("#g-box", el);
+  box.ondragover = (ev) => { ev.preventDefault(); box.classList.add("over"); };
+  box.ondragleave = (ev) => { if (!box.contains(ev.relatedTarget)) box.classList.remove("over"); };
+  box.ondrop = (ev) => { ev.preventDefault(); box.classList.remove("over"); upload([...ev.dataTransfer.files]); };
   el.addEventListener("paste", (ev) => { const fs = [...(ev.clipboardData?.files || [])]; if (fs.length) { ev.preventDefault(); upload(fs); } });
-  drawRefs();
-  const hint = () => {
-    const t = $("#g-target", el).value, task = st.task_info[t];
-    $("#g-hint", el).textContent = task ? task : (st.providers.find((p) => p.name === t)?.status || "");
-  };
-  $("#g-target", el).onchange = hint; hint();
+  drawRefs(); drawSize(); summary();
   $("#g-run", el).onclick = () => run();
   $("#g-cancel", el).onclick = async () => { if (g.job) await api(`/api/jobs/${g.job}/cancel`, {}); };
   $("#g-prompt", el).addEventListener("keydown", (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) run(); });
   $("#g-prompt", el).focus();
+  if (!ready.length) $("#g-run", el).disabled = true;
 
   async function run() {
-    const body = { prompt: $("#g-prompt", el).value, target: $("#g-target", el).value, refs: g.refs, aspect: $("#g-aspect", el).value,
-      n: +$("#g-n", el).value, quality: $("#g-quality", el).value, resolution: $("#g-res", el).value, background: $("#g-bg", el).value };
-    if (body.target === "edit" && !body.refs.length) { toast("Edit needs a reference image.", true); return; }
+    if (!g.provider) return;
+    const body = { prompt: $("#g-prompt", el).value, target: g.provider, refs: g.refs, aspect: g.aspect, n: g.n,
+      quality: g.quality, resolution: g.resolution, background: g.background };
+    if (!body.prompt.trim()) { toast("Describe the image first.", true); return; }
     const stage = $("#g-stage", el);
     stage.classList.remove("hidden");
     stage.innerHTML = '<div class="log" id="g-log"><span class="spinner"></span> Starting…</div>';
     $("#g-run", el).disabled = true; $("#g-cancel", el).classList.remove("hidden");
     $("#g-pill", el).innerHTML = '<span class="status-pill"><span class="spinner"></span>Working</span>';
+    stage.scrollIntoView({ behavior: "smooth", block: "nearest" });
     try {
       const job = await api("/api/generate", body);
       g.job = job.id;
@@ -410,24 +471,25 @@ function openGenerate(init = {}, autoRun = false) {
     try { j = await api(`/api/jobs/${id}`); } catch (err) { return; }
     const logEl = $("#g-log", el);
     if (logEl) logEl.textContent = j.lines.slice(-8).join("\n") || "Working…";
-    $("#g-sub", el).textContent = `${j.seconds} s`;
+    $("#g-sub", el).textContent = `${prov().label || ""} · ${Math.round(j.seconds)} s`;
     if (j.status !== "running") { clearInterval(g.timer); finish(j); }
   }
   async function finish(j) {
     $("#g-run", el).disabled = false; $("#g-cancel", el).classList.add("hidden");
     const ok = j.status === "done" && j.outputs.length;
     $("#g-pill", el).innerHTML = `<span class="status-pill ${ok ? "done" : "failed"}">${ok ? "Done" : j.status === "cancelled" ? "Stopped" : "Failed"}</span>`;
-    $("#g-sub", el).textContent = ok ? `${j.outputs.length} image${j.outputs.length > 1 ? "s" : ""} in ${Math.round(j.seconds)} s` : "";
+    $("#g-sub", el).textContent = ok ? `${j.outputs.length} image${j.outputs.length > 1 ? "s" : ""} in ${Math.round(j.seconds)} s` : "Describe an image, pick a provider.";
     $("#g-run", el).innerHTML = icon.spark + (ok ? "Generate again" : "Try again");
     const stage = $("#g-stage", el);
     if (!ok) { stage.innerHTML = `<div class="log" style="color:var(--bad)">${esc(j.lines.slice(-6).join("\n") || "Something went wrong.")}</div>`; return; }
     await refreshLog();
     stage.innerHTML = j.outputs.map((p, i) => `<div class="result"><img src="${fileUrl(p)}" alt=""><div class="row">
       <button class="btn small icon" title="Open" data-o="${i}">${icon.open}</button><button class="btn small icon" title="Show in folder" data-r="${i}">${icon.folder}</button>
-      <button class="btn small icon" title="Use as reference" data-u="${i}">${icon.ref}</button></div></div>`).join("");
+      <button class="btn small icon" title="Copy image path" data-c="${i}">${icon.copy}</button><button class="btn small icon" title="Use as reference" data-u="${i}">${icon.ref}</button></div></div>`).join("");
     $$("[data-o]", stage).forEach((b) => b.onclick = () => api("/api/open", { path: j.outputs[+b.dataset.o] }).catch((e) => toast(e.message, true)));
     $$("[data-r]", stage).forEach((b) => b.onclick = () => api("/api/reveal", { path: j.outputs[+b.dataset.r] }).catch((e) => toast(e.message, true)));
-    $$("[data-u]", stage).forEach((b) => b.onclick = () => { g.refs = [j.outputs[+b.dataset.u]]; drawRefs(); if ($("#g-target", el).value === "draft") $("#g-target", el).value = "edit"; hint(); });
+    $$("[data-c]", stage).forEach((b) => b.onclick = async () => { await navigator.clipboard.writeText(j.outputs[+b.dataset.c]); toast("Path copied"); });
+    $$("[data-u]", stage).forEach((b) => b.onclick = () => { g.refs = [j.outputs[+b.dataset.u]]; drawRefs(); summary(); $("#g-prompt", el).focus(); });
   }
   if (autoRun) run();
 }

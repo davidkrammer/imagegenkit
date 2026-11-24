@@ -195,3 +195,32 @@ table.list img { width: 40px; height: 40px; object-fit: cover; border-radius: 6p
 }
 #dl-box:empty { display: none; }
 .bars-table th h2 { color: var(--text); }
+
+/* Generate (laid out like the Mac app) */
+.modal-head.gen-head { background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 14px 14px; padding: 24px 28px; }
+.modal-head.gen-head .ico { width: 52px; height: 52px; border-radius: 14px; }
+.modal-head.gen-head h2 { font-size: 22px; }
+.gen-prompt { border: 1.5px solid var(--line); border-radius: 16px; background: var(--card2); display: flex; flex-direction: column; min-height: 230px; transition: border-color .15s; }
+.gen-prompt:focus-within, .gen-prompt.over { border-color: var(--text); }
+.gen-prompt.over { background: color-mix(in srgb, var(--focus) 8%, var(--card2)); }
+.gen-prompt textarea { flex: 1; border: 0; background: transparent; box-shadow: none !important; resize: none; padding: 14px 16px; font-size: 15px; min-height: 160px; }
+.gen-refs { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 0 14px 12px; }
+.gen-refs .ref { width: 64px; height: 64px; }
+.add-images { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px 4px; }
+.add-images b { font-weight: 500; }
+.add-images:hover b { text-decoration: underline; }
+.gen-grid { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px 16px; align-items: center; }
+.gen-grid > label, .gen-more > label { color: var(--muted); font-size: 14.5px; }
+.gen-more { display: contents; }
+.gen-more.hidden { display: none !important; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid transparent; background: var(--card2); border-radius: 9px; padding: 6px 13px; cursor: pointer; font-weight: 500; font-size: 14.5px; }
+.chip-btn:hover { border-color: var(--line); }
+.chip-btn.on { background: var(--accent); color: var(--accent-text); }
+.gen-seg button { min-width: 48px; font-size: 14.5px; padding: 6px 14px; }
+.aspect-box { display: inline-block; border: 1.5px dashed var(--muted); border-radius: 3px; vertical-align: middle; margin-left: 4px; }
+.aspect-box.auto { border-style: dotted; }
+#g-more-btn.on { background: var(--card2); border-color: var(--text); }
+#g-aspect { min-width: 110px; }
+.gen-grid .seg, .gen-more .seg { justify-self: start; }
+.modal-foot { align-items: center; }

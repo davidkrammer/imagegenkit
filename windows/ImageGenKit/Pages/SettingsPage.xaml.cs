@@ -237,9 +237,10 @@ public sealed partial class SettingsPage : Page, IRefreshable
         {
             Title = install ? $"Installing {(tool == "codex" ? "Codex" : "Grok Build")}" : "Log in",
             Content = install ? "Follow the steps in the terminal window. Then log in." : "Log in in the terminal window, then come back.",
-            PrimaryButtonText = "Check Again", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot,
+            PrimaryButtonText = "Check Now", CloseButtonText = "Close", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot,
         };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary) await Store.Shared.ReloadStateAsync();
+        await dialog.ShowAsync();
+        await Store.Shared.ReloadStateAsync(); // the terminal says "click Check now"; closing checks too
     }
 
     async Task KeyDialog(ProviderRow p)

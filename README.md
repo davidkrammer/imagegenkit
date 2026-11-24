@@ -53,23 +53,36 @@
 
 ### Install
 
-In PowerShell:
+Download **ImageGenKit-Setup-x.y.z.exe** from the [latest release](https://github.com/davidkrammer/imagegenkit/releases/latest)
+and run it. It installs for your user only (no admin rights) into `%LOCALAPPDATA%\Programs\ImageGenKit`, brings
+everything it needs (its own Python included), and adds ImageGenKit to the Start menu. Windows 10 (version 2004 or later) or Windows 11, 64-bit.
+
+The installer isn't code-signed yet, so Windows SmartScreen may say "Windows protected your PC": click **More info**,
+then **Run anyway**. Updates come from GitHub releases; the app checks each download against GitHub's SHA-256 checksum
+before installing it.
+
+![ImageGenKit on Windows](docs/screenshots/windows.jpg)
+
+### The app
+
+A native Windows app (WinUI 3) with the same parts as the Mac app: Overview with spend and activity, Gallery, History,
+Generate (with reference images), and Settings for providers, task routing, monthly limits, models on this PC and AI
+agents. It follows the Windows light or dark mode, and a short welcome tour with a hands-on demo shows the way at first
+launch. In Settings › AI agents it installs the `imagegenkit` command (into `%USERPROFILE%\.local\bin`, on your PATH)
+and the skill for Claude Code and Codex.
+
+### Command line only
+
+Without the app, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/davidkrammer/imagegenkit/main/install.ps1 | iex
 ```
 
-It needs Python 3.9+ (`winget install Python.Python.3.13` if you don't have it) and nothing else. The installer puts
-`imagegenkit` in `%USERPROFILE%\.local\bin` (and on your PATH), adds **ImageGenKit** to the Start menu, and installs the
-skill for Claude Code and Codex if they're on this PC. From a checkout: `powershell -ExecutionPolicy Bypass -File install.ps1`.
-
-### The app
-
-Open **ImageGenKit** from the Start menu, or run `imagegenkit app`. It opens in its own window (Edge or Chrome app mode)
-and has the same parts as the Mac app: Overview with spend and activity, Gallery, History, Generate (with reference
-images), and Settings for providers, task routing, defaults, monthly limits, local models and AI agents. It's a small
-local web app served by `cli/imagegenkit_app.py` on 127.0.0.1 only, with a per-launch token; it quits by itself a minute
-after its window is closed.
+It needs Python 3.9+ (`winget install Python.Python.3.13` if you don't have it). It installs the command into
+`%USERPROFILE%\.local\bin` (and on your PATH), the skill for Claude Code and Codex, and a lightweight browser version of
+the app (`imagegenkit app`): a local web app in an Edge or Chrome app window, on 127.0.0.1 only with a per-launch token.
+From a checkout: `powershell -ExecutionPolicy Bypass -File install.ps1`.
 
 ### What's different on Windows
 
@@ -80,7 +93,7 @@ after its window is closed.
 | On this Mac / PC | Metal build of stable-diffusion.cpp, Apple silicon | Vulkan build (any recent NVIDIA, AMD or Intel GPU) or CPU build: `imagegenkit config set local_backend cpu` |
 | Grok subscription | `curl -fsSL https://x.ai/cli/install.sh \| bash` | `irm https://x.ai/cli/install.ps1 \| iex` (the app can open it in a terminal) |
 | Codex subscription | `npm install -g @openai/codex` | same (Node.js needed) |
-| App | native SwiftUI menu bar app | local web app in an app window, Start menu shortcut |
+| App | native SwiftUI app with a menu bar panel | native WinUI 3 app (or the browser version with the command line only) |
 
 Everything else is shared: `~/.config/imagegenkit/config.json`, the log, the provider list and the agent skill.
 

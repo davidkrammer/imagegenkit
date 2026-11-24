@@ -17,6 +17,7 @@ jobs:
   app:
     name: Build, install and screenshot
     runs-on: windows-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -65,7 +66,10 @@ jobs:
         shell: pwsh
         run: |
           $setup = (Get-Item "dist/ImageGenKit-Setup-$env:IGK_VERSION.exe").FullName
-          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          # Not -Wait: that also waits for the app the installer opens at the end, which keeps running.
+          $install = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru
+          if (-not $install.WaitForExit(300000)) { throw 'the installer did not finish in 5 minutes' }
+          if ($install.ExitCode) { throw "the installer failed ($($install.ExitCode))" }
           $exe = Join-Path $env:LOCALAPPDATA 'Programs\ImageGenKit\ImageGenKit.exe'
           if (-not (Test-Path $exe)) { throw 'not installed' }
           if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\ImageGenKit\python\python.exe'))) { throw 'python missing' }
@@ -74,8 +78,9 @@ jobs:
           if (-not $p) { throw 'the app did not start after installing' }
           $p | Stop-Process -Force
           $uninstall = Join-Path $env:LOCALAPPDATA 'Programs\ImageGenKit\unins000.exe'
-          Start-Process $uninstall -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -Wait
-          Start-Sleep 3
+          $remove = Start-Process $uninstall -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -PassThru
+          $remove.WaitForExit(120000) | Out-Null
+          Start-Sleep 5  # the uninstaller finishes from a copy in TEMP
           if (Test-Path $exe) { throw 'uninstall left the app behind' }
 
       - uses: actions/upload-artifact@v4

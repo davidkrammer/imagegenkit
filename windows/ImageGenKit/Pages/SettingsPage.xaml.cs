@@ -561,10 +561,10 @@ public sealed partial class SettingsPage : Page, IRefreshable
             Updater.Phase.Failed => u.Error ?? "Couldn't check",
             _ => "Updates come from GitHub",
         };
-        Body.Children.Add(Card("Updates", $"Version {Updater.Current} · {state}", Glyph("\uE895"), action));
+        Body.Children.Add(Card("The app", $"Version {Updater.Current} · {state}", Glyph("\uE895"), action));
         var auto = new ToggleSwitch { IsOn = s.State.Bool("auto_update", true), OnContent = "", OffContent = "" };
         auto.Toggled += async (_, _) => await Run(() => auto.IsOn ? SetConfig(new(), new[] { "auto_update" }) : SetConfig(new() { ["auto_update"] = false }));
-        Body.Children.Add(Card("Update the imagegenkit command by itself", "When you use it without the app. Checks GitHub once a day.", Glyph(""), auto));
+        Body.Children.Add(Card("The imagegenkit command", "Updates itself when you use it without the app. Checks GitHub once a day.", Glyph(""), auto));
 
         Heading("Help");
         var tourButton = Ui.LabelButton("\uE7BE", "Show Tour", (_, _) => App.Window?.ShowTour());
